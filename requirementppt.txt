@@ -1,3 +1,2 @@
 streamlit
-pywin32
-python-pptx
+PyMuPDF
