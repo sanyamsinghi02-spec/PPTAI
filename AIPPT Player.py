@@ -1,63 +1,51 @@
 import base64
 import json
-import os
 import tempfile
-import webbrowser
-import pythoncom
+import fitz  # PyMuPDF
 import streamlit as st
-import win32com.client
 
 # ==========================================
-# HARDCODE YOUR GEMINI API KEY(S) HERE
+# SECURE MULTI-KEY ROTATION CONFIGURATION
 # ==========================================
-# Read secrets securely from Streamlit Cloud
-GEMINI_API_KEYS = st.secrets["GEMINI_API_KEYS"]
+key1 = st.secrets.get("GEMINI_API_KEY", "")
+key2 = st.secrets.get("GEMINI_API_KEY_2", "")
+key3 = st.secrets.get("GEMINI_API_KEY_3", "")
 
+# Combines your separate secret keys into a comma-separated string for JavaScript rotation
+GEMINI_API_KEYS = f"{key1},{key2},{key3}"
 # ==========================================
 
 st.set_page_config(
-    page_title="AI-Enabled PPT Player", page_icon="✨", layout="centered"
+    page_title="AI-Enabled Presentation Player", page_icon="✨", layout="centered"
 )
 
-st.title("✨ AI-Enabled PowerPoint Player")
+st.title("✨ AI-Enabled Presentation Player")
 st.markdown(
-    "Upload any `.pptx` presentation to launch it in a full-screen player with"
-    " **live impromptu AI slide generation**."
+    "Upload your presentation exported as a **PDF** (In PowerPoint: *File > Save"
+    " As > PDF*) to launch it in a full-screen player with **live impromptu AI"
+    " slide generation**."
 )
 
-# Only the PowerPoint file uploader is needed now
 uploaded_file = st.file_uploader(
-    "Upload your PowerPoint file (.pptx)", type=["pptx"]
-)
-manual_path = st.text_input(
-    "Or paste local file path (Optional)",
-    placeholder=r"C:\Users\Name\Documents\deck.pptx",
+    "Upload presentation (.pdf)", type=["pdf"]
 )
 
 
-def convert_ppt_to_images(pptx_path: str) -> list[str]:
-  """Exports each slide of a .pptx file as a base64 PNG image using PowerPoint."""
-  pythoncom.CoInitialize()
-  abs_path = os.path.abspath(pptx_path)
-
-  ppt = win32com.client.Dispatch("PowerPoint.Application")
-  presentation = ppt.Presentations.Open(abs_path, WithWindow=False)
-
+def convert_pdf_to_images(pdf_path: str) -> list[str]:
+  """Converts PDF pages into base64 PNG images for the web player."""
+  doc = fitz.open(pdf_path)
   slide_images = []
-  with tempfile.TemporaryDirectory() as tmpdir:
-    for i, slide in enumerate(presentation.Slides, start=1):
-      img_path = os.path.join(tmpdir, f"slide_{i}.png")
-      slide.Export(img_path, "PNG", 1920, 1080)
-      with open(img_path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("utf-8")
-        slide_images.append(f"data:image/png;base64,{b64}")
-
-  presentation.Close()
+  for page_num in range(len(doc)):
+    page = doc[page_num]
+    # Render page to a high-resolution pixmap (zoom = 2 for sharp text)
+    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+    img_bytes = pix.tobytes("png")
+    b64 = base64.b64encode(img_bytes).decode("utf-8")
+    slide_images.append(f"data:image/png;base64,{b64}")
   return slide_images
 
 
 def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
-  # Process keys into a JavaScript array (supports single or multiple comma-separated keys)
   keys_list = [k.strip() for k in keys_string.split(",") if k.strip()]
   keys_js_array = json.dumps(keys_list)
 
@@ -172,7 +160,6 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
       aiStatus.textContent = "Generating...";
       aiInput.disabled = true;
 
-      // Rotate through keys automatically if multiple are provided
       let currentKey = API_KEYS[keyIndex % API_KEYS.length];
       keyIndex++;
 
@@ -209,7 +196,7 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
         aiInput.value = "";
         aiBar.classList.remove("open");
       }} catch (err) {{
-        aiStatus.textContent = "Error! Check API key.";
+        aiStatus.textContent = "Error! Check API keys.";
         console.error(err);
       }} finally {{
         aiInput.disabled = false;
@@ -222,33 +209,22 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 """
 
 
-if st.button("🚀 Launch AI-Enabled Presentation", type="primary"):
-  if not uploaded_file and not manual_path:
-    st.error("Please upload a .pptx file or enter a file path.")
+if st.button("🚀 Launch AI-Enabled Presentation Player", type="primary"):
+  if not uploaded_file:
+    st.error("Please upload a presentation PDF file.")
   else:
-    with st.spinner("Converting slides and building presentation player..."):
+    with st.spinner("Processing PDF presentation slides..."):
       try:
-        if uploaded_file is not None:
-          temp_pptx = os.path.join(tempfile.gettempdir(), uploaded_file.name)
-          with open(temp_pptx, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-          target_path = temp_pptx
-        else:
-          target_path = manual_path.strip().strip('"')
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+          tmp.write(uploaded_file.getvalue())
+          temp_pdf_path = tmp.name
 
-        if not os.path.exists(target_path):
-          st.error(f"File not found: {target_path}")
-        else:
-          slides_b64 = convert_ppt_to_images(target_path)
-          html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
+        slides_b64 = convert_pdf_to_images(temp_pdf_path)
+        html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
 
-          output_path = os.path.abspath("ai_enabled_deck.html")
-          with open(output_path, "w", encoding="utf-8") as f:
-            f.write(html_content)
-
-          st.success(
-              f"✅ Converted {len(slides_b64)} slides! Opening player tab..."
-          )
-          webbrowser.open("file://" + output_path)
+        st.components.v1.html(html_content, height=750, scrolling=False)
+        st.success(
+            f"✅ Successfully loaded {len(slides_b64)} slides into the player!"
+        )
       except Exception as e:
         st.error(f"Error processing presentation: {e}")
