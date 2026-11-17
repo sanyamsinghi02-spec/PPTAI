@@ -1,7 +1,8 @@
 import base64
+import io
 import json
 import tempfile
-import fitz  # PyMuPDF
+import pypdfium2 as pdfium
 import streamlit as st
 
 # ==========================================
@@ -21,26 +22,22 @@ st.set_page_config(
 
 st.title("✨ AI-Enabled Presentation Player")
 st.markdown(
-    "Upload your presentation exported as a **PDF** (In PowerPoint: *File > Save"
-    " As > PDF*) to launch it in a full-screen player with **live impromptu AI"
-    " slide generation**."
+    "Upload your presentation exported as a **PDF** to launch it in a"
+    " full-screen player with **live impromptu AI slide generation**."
 )
 
-uploaded_file = st.file_uploader(
-    "Upload presentation (.pdf)", type=["pdf"]
-)
+uploaded_file = st.file_uploader("Upload presentation (.pdf)", type=["pdf"])
 
 
 def convert_pdf_to_images(pdf_path: str) -> list[str]:
-  """Converts PDF pages into base64 PNG images for the web player."""
-  doc = fitz.open(pdf_path)
+  """Converts PDF pages into base64 PNG images using pypdfium2."""
+  pdf = pdfium.PdfDocument(pdf_path)
   slide_images = []
-  for page_num in range(len(doc)):
-    page = doc[page_num]
-    # Render page to a high-resolution pixmap (zoom = 2 for sharp text)
-    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-    img_bytes = pix.tobytes("png")
-    b64 = base64.b64encode(img_bytes).decode("utf-8")
+  for i, page in enumerate(pdf):
+    image = page.render(scale=2).to_pil()
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
     slide_images.append(f"data:image/png;base64,{b64}")
   return slide_images
 
