@@ -1,3 +1,4 @@
+
 import base64
 import io
 import json
@@ -7,119 +8,162 @@ import zipfile
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 from google import genai
 from google.genai import types
 
 
-# ---------------------------------------------------------
-# APP CONFIGURATION
-# ---------------------------------------------------------
+# =========================================================
+# CONFIGURATION
+# =========================================================
+
 st.set_page_config(
     page_title="AI-Enabled Presentation Player",
     page_icon="✨",
     layout="wide",
 )
 
-APP_DIR = Path(__file__).parent
-COMPONENT_DIR = APP_DIR / "player_component"
-
-# Limits help protect the app from unexpectedly large ZIP files.
 MAX_ZIP_BYTES = 50 * 1024 * 1024
-MAX_TOTAL_IMAGE_BYTES = 40 * 1024 * 1024
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_TOTAL_IMAGE_BYTES = 40 * 1024 * 1024
 MAX_SLIDES = 100
+
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
-MODEL_NAME = st.secrets.get("GEMINI_MODEL", "gemini-2.5-flash")
-
-player_component = components.declare_component(
-    "ai_ppt_player",
-    path=str(COMPONENT_DIR),
+MODEL_NAME = st.secrets.get(
+    "GEMINI_MODEL",
+    "gemini-2.5-flash"
 )
 
 
-# ---------------------------------------------------------
-# GEMINI CONFIGURATION
-# ---------------------------------------------------------
+# =========================================================
+# SESSION STATE
+# =========================================================
+
+defaults = {
+    "slides": [],
+    "current_slide": 0,
+    "ai_response": None,
+    "generated_slides": [],
+    "presentation_loaded": False,
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+# =========================================================
+# GEMINI API
+# =========================================================
+
 def get_api_keys():
-    """Read API keys from Streamlit secrets; never expose them to the browser."""
+
     keys = [
         st.secrets.get("GEMINI_API_KEY", ""),
         st.secrets.get("GEMINI_API_KEY_2", ""),
         st.secrets.get("GEMINI_API_KEY_3", ""),
     ]
-    return [key.strip() for key in keys if key and key.strip()]
+
+    return [
+        key.strip()
+        for key in keys
+        if key and key.strip()
+    ]
 
 
 def parse_json_response(response_text):
-    """Parse JSON, including a defensive fallback for fenced model output."""
+
     if not response_text:
         raise ValueError("Gemini returned an empty response.")
 
     cleaned = response_text.strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+
+    cleaned = re.sub(
+        r"^```(?:json)?\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE
+    )
+
     cleaned = re.sub(r"\s*```$", "", cleaned)
 
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            "Gemini returned text that was not valid JSON. "
-            f"Response preview: {cleaned[:300]}"
-        ) from exc
+    return json.loads(cleaned)
 
 
-def generate_ai_response(user_prompt, slide_index, slide_count, image_bytes=None, mime_type=None):
-    """
-    Generate a structured answer or a new slide.
-    The current slide image is sent to Gemini when available, so questions
-    about the visible slide have actual visual context.
-    """
+def generate_ai_response(
+    user_prompt,
+    slide_index,
+    slide_count,
+    image_bytes=None,
+    mime_type=None
+):
+
     api_keys = get_api_keys()
+
     if not api_keys:
         raise ValueError(
-            "No Gemini API keys found. Add GEMINI_API_KEY to Streamlit secrets."
+            "Gemini API keys are missing. "
+            "Please configure GEMINI_API_KEY in Streamlit secrets."
         )
 
     prompt = f"""
-You are an intelligent presentation assistant.
+You are an intelligent AI presentation assistant.
 
-The user is viewing slide {slide_index + 1} of {slide_count}.
-User request: {user_prompt}
+The user is currently viewing slide {slide_index + 1}
+out of {slide_count} slides.
 
-If the user asks a general question, explain the visible slide when its image
-is provided, or answer the question conversationally. Return JSON:
+User request:
+{user_prompt}
+
+If the user asks a question, explain the current slide
+using the supplied slide image.
+
+Return this JSON format:
+
 {{
-  "type": "answer",
-  "spoken_text": "A natural, detailed response suitable for reading aloud.",
-  "display_text": "A concise, readable response for the screen."
+    "type": "answer",
+    "spoken_text": "Detailed natural answer",
+    "display_text": "Readable answer for the screen"
 }}
 
-If the user explicitly asks to create, add, or generate a new slide, return JSON:
+If the user explicitly asks to create, add, or generate
+a new presentation slide, return:
+
 {{
-  "type": "slide",
-  "title": "A concise slide title",
-  "bullets": ["Point one", "Point two", "Point three"]
+    "type": "slide",
+    "title": "Slide title",
+    "bullets": [
+        "Point one",
+        "Point two",
+        "Point three"
+    ]
 }}
 
-For a slide, provide 3 to 5 concise bullet points.
-Return only valid JSON. Do not include Markdown code fences.
+For generated slides:
+- Provide 3 to 5 useful bullet points.
+- Keep the content concise.
+- Make the slide professional and informative.
+
+Return ONLY valid JSON.
+Do not use Markdown code fences.
 """
 
     last_error = None
 
-    # Try configured keys in order. Each key is kept server-side.
     for api_key in api_keys:
+
         try:
+
             client = genai.Client(api_key=api_key)
 
             contents = [prompt]
+
             if image_bytes and mime_type:
+
                 contents.append(
                     types.Part.from_bytes(
                         data=image_bytes,
-                        mime_type=mime_type,
+                        mime_type=mime_type
                     )
                 )
 
@@ -129,46 +173,63 @@ Return only valid JSON. Do not include Markdown code fences.
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     temperature=0.6,
-                    max_output_tokens=1200,
+                    max_output_tokens=1500,
                 ),
             )
 
             data = parse_json_response(response.text)
 
             if data.get("type") == "slide":
-                title = str(data.get("title", "New AI Slide")).strip()[:180]
+
                 bullets = data.get("bullets", [])
+
                 if not isinstance(bullets, list):
                     bullets = []
-                bullets = [str(item).strip()[:500] for item in bullets[:5] if str(item).strip()]
-                if not bullets:
-                    bullets = ["No bullet points were returned."]
+
+                bullets = [
+                    str(item).strip()[:500]
+                    for item in bullets[:5]
+                    if str(item).strip()
+                ]
+
                 return {
                     "type": "slide",
-                    "title": title or "New AI Slide",
+                    "title": str(
+                        data.get("title", "AI Generated Slide")
+                    )[:180],
                     "bullets": bullets,
                 }
 
             if data.get("type") == "answer":
+
                 return {
                     "type": "answer",
-                    "spoken_text": str(data.get("spoken_text", "I couldn't generate a spoken answer."))[:6000],
-                    "display_text": str(data.get("display_text", data.get("spoken_text", "")))[:6000],
+                    "spoken_text": str(
+                        data.get("spoken_text", "")
+                    )[:6000],
+                    "display_text": str(
+                        data.get("display_text", "")
+                    )[:6000],
                 }
 
-            raise ValueError("Gemini returned an unsupported response type.")
+            raise ValueError(
+                "Gemini returned an unsupported response."
+            )
 
         except Exception as exc:
             last_error = exc
 
-    raise RuntimeError(f"All configured Gemini API attempts failed: {last_error}")
+    raise RuntimeError(
+        f"All Gemini API attempts failed: {last_error}"
+    )
 
 
-# ---------------------------------------------------------
-# ZIP / SLIDE PROCESSING
-# ---------------------------------------------------------
+# =========================================================
+# ZIP FILE PROCESSING
+# =========================================================
+
 def natural_sort_key(value):
-    """Sort slide1, slide2, slide10 in the expected numeric order."""
+
     return [
         int(part) if part.isdigit() else part.lower()
         for part in re.split(r"(\d+)", value)
@@ -176,197 +237,366 @@ def natural_sort_key(value):
 
 
 def extract_slides_from_zip(zip_bytes):
+
     if len(zip_bytes) > MAX_ZIP_BYTES:
-        raise ValueError("ZIP file is too large. Maximum allowed size is 50 MB.")
+        raise ValueError("ZIP file exceeds the 50 MB limit.")
 
     slides = []
-    total_image_bytes = 0
+    total_size = 0
 
     try:
+
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+
             candidates = []
 
             for info in archive.infolist():
+
                 if info.is_dir():
                     continue
 
-                # Ignore common operating-system metadata.
-                if info.filename.startswith("__MACOSX/") or "/." in info.filename:
+                if info.filename.startswith("__MACOSX/"):
                     continue
 
                 suffix = Path(info.filename).suffix.lower()
+
                 if suffix in ALLOWED_EXTENSIONS:
                     candidates.append(info)
 
-            candidates.sort(key=lambda item: natural_sort_key(item.filename))
+            candidates.sort(
+                key=lambda item: natural_sort_key(item.filename)
+            )
 
             if not candidates:
                 raise ValueError(
-                    "No PNG, JPG, JPEG, or WEBP images were found in the ZIP."
+                    "No PNG, JPG, JPEG or WEBP images found."
                 )
 
             if len(candidates) > MAX_SLIDES:
-                raise ValueError(f"Too many images. Maximum allowed slides: {MAX_SLIDES}.")
-
-            for info in candidates:
-                if info.file_size > MAX_IMAGE_BYTES:
-                    raise ValueError(
-                        f"Image '{Path(info.filename).name}' exceeds the 10 MB limit."
-                    )
-
-                total_image_bytes += info.file_size
-                if total_image_bytes > MAX_TOTAL_IMAGE_BYTES:
-                    raise ValueError("Total extracted image size exceeds 40 MB.")
-
-                image_bytes = archive.read(info)
-                mime_type = mimetypes.guess_type(info.filename)[0]
-                if mime_type not in {"image/png", "image/jpeg", "image/webp"}:
-                    continue
-
-                encoded = base64.b64encode(image_bytes).decode("ascii")
-                data_url = f"data:{mime_type};base64,{encoded}"
-
-                slides.append(
-                    {
-                        "name": Path(info.filename).name,
-                        "data_url": data_url,
-                        "bytes": image_bytes,
-                        "mime_type": mime_type,
-                    }
+                raise ValueError(
+                    f"Maximum allowed slides: {MAX_SLIDES}"
                 )
 
-    except zipfile.BadZipFile as exc:
-        raise ValueError("The uploaded file is not a valid ZIP archive.") from exc
+            for info in candidates:
+
+                if info.file_size > MAX_IMAGE_BYTES:
+                    raise ValueError(
+                        f"{info.filename} exceeds the 10 MB image limit."
+                    )
+
+                total_size += info.file_size
+
+                if total_size > MAX_TOTAL_IMAGE_BYTES:
+                    raise ValueError(
+                        "Total image size exceeds 40 MB."
+                    )
+
+                image_bytes = archive.read(info)
+
+                mime_type = mimetypes.guess_type(
+                    info.filename
+                )[0]
+
+                if mime_type not in {
+                    "image/png",
+                    "image/jpeg",
+                    "image/webp"
+                }:
+                    continue
+
+                slides.append({
+                    "name": Path(info.filename).name,
+                    "bytes": image_bytes,
+                    "mime_type": mime_type,
+                })
+
+    except zipfile.BadZipFile:
+        raise ValueError("Invalid ZIP file.")
 
     if not slides:
-        raise ValueError("No supported slide images could be read from the ZIP.")
+        raise ValueError("No supported images found.")
 
     return slides
 
 
-# ---------------------------------------------------------
-# SESSION STATE
-# ---------------------------------------------------------
-defaults = {
-    "slides": None,
-    "ai_response": None,
-    "ai_response_id": 0,
-    "last_request_id": None,
-    "last_error": None,
-}
-for key, value in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
+# =========================================================
+# SIDEBAR
+# =========================================================
 
-
-# ---------------------------------------------------------
-# STREAMLIT UI
-# ---------------------------------------------------------
 st.title("✨ AI-Enabled Presentation Player")
+
 st.caption(
-    "Upload a ZIP containing slide images, then navigate and ask the AI assistant "
-    "questions using text or voice."
+    "An interactive presentation player powered by Gemini AI."
 )
 
 with st.sidebar:
-    st.header("Presentation")
+
+    st.header("📂 Presentation")
+
     uploaded_file = st.file_uploader(
-        "Upload slides archive",
+        "Upload your presentation ZIP",
         type=["zip"],
-        help="ZIP files containing PNG, JPG, JPEG, or WEBP slide images.",
     )
 
-    if st.button("🚀 Load presentation", type="primary", use_container_width=True):
+    if st.button(
+        "🚀 Load Presentation",
+        type="primary",
+        use_container_width=True
+    ):
+
         if uploaded_file is None:
-            st.error("Please upload a ZIP file first.")
+
+            st.error("Please upload a ZIP file.")
+
         else:
+
             try:
-                with st.spinner("Reading slide images..."):
-                    st.session_state.slides = extract_slides_from_zip(
+
+                with st.spinner("Loading slides..."):
+
+                    slides = extract_slides_from_zip(
                         uploaded_file.getvalue()
                     )
+
+                    st.session_state.slides = slides
+                    st.session_state.current_slide = 0
                     st.session_state.ai_response = None
-                    st.session_state.ai_response_id = 0
-                    st.session_state.last_request_id = None
-                    st.session_state.last_error = None
-                st.success(f"Loaded {len(st.session_state.slides)} slides.")
+                    st.session_state.generated_slides = []
+                    st.session_state.presentation_loaded = True
+
+                st.success(
+                    f"{len(slides)} slides loaded successfully!"
+                )
+
             except Exception as exc:
+
                 st.error(str(exc))
 
     st.divider()
-    st.caption(f"Gemini model: {MODEL_NAME}")
-    st.caption("API keys are read from Streamlit secrets and are never sent to the browser.")
 
-if st.session_state.last_error:
-    st.error(st.session_state.last_error)
+    st.caption(f"AI Model: {MODEL_NAME}")
 
-if not st.session_state.slides:
-    st.info(
-        "Upload a ZIP file from the sidebar and select **Load presentation** "
-        "to start."
+    st.caption(
+        "Powered by Google Gemini"
     )
+
+
+# =========================================================
+# PRESENTATION PLAYER
+# =========================================================
+
+if not st.session_state.presentation_loaded:
+
+    st.info(
+        "Upload a ZIP file containing your slide images "
+        "and click Load Presentation."
+    )
+
     st.stop()
 
 
-# Pass only browser-display data to the component. Raw image bytes remain in Python.
-component_slides = [
-    {"name": slide["name"], "src": slide["data_url"]}
-    for slide in st.session_state.slides
-]
+slides = st.session_state.slides
 
-component_value = player_component(
-    slides=component_slides,
-    response=st.session_state.ai_response,
-    response_id=st.session_state.ai_response_id,
-    key="presentation_player",
-    default=None,
+total_slides = len(slides)
+
+current_index = st.session_state.current_slide
+
+current_slide = slides[current_index]
+
+
+# =========================================================
+# SLIDE DISPLAY
+# =========================================================
+
+st.subheader(
+    f"Slide {current_index + 1} of {total_slides}"
 )
 
-# A component interaction causes a Streamlit rerun. Process each request once.
-if isinstance(component_value, dict):
-    request_id = component_value.get("request_id")
-    user_prompt = str(component_value.get("prompt", "")).strip()
-    slide_index = component_value.get("slide_index", 0)
+st.image(
+    current_slide["bytes"],
+    use_container_width=True
+)
 
-    if (
-        request_id
-        and request_id != st.session_state.last_request_id
-        and user_prompt
+
+# =========================================================
+# NAVIGATION
+# =========================================================
+
+col1, col2, col3 = st.columns([1, 2, 1])
+
+with col1:
+
+    if st.button(
+        "⬅ Previous",
+        use_container_width=True,
+        disabled=current_index == 0
     ):
-        st.session_state.last_request_id = request_id
+
+        st.session_state.current_slide -= 1
+        st.session_state.ai_response = None
+        st.rerun()
+
+
+with col2:
+
+    st.progress(
+        (current_index + 1) / total_slides
+    )
+
+
+with col3:
+
+    if st.button(
+        "Next ➡",
+        use_container_width=True,
+        disabled=current_index == total_slides - 1
+    ):
+
+        st.session_state.current_slide += 1
+        st.session_state.ai_response = None
+        st.rerun()
+
+
+# =========================================================
+# AI ASSISTANT
+# =========================================================
+
+st.divider()
+
+st.header("🤖 AI Presentation Assistant")
+
+st.write(
+    "Ask questions about the current slide, "
+    "request explanations, or generate additional slides."
+)
+
+user_prompt = st.text_area(
+    "Your question or instruction",
+    placeholder=(
+        "Example: Explain this slide in simple language.\n"
+        "Example: Give me a practical example.\n"
+        "Example: Create a new slide on this topic."
+    ),
+    height=110,
+    key="user_prompt"
+)
+
+
+if st.button(
+    "✨ Ask AI",
+    type="primary",
+    use_container_width=True
+):
+
+    if not user_prompt.strip():
+
+        st.warning("Please enter a question or instruction.")
+
+    else:
 
         try:
-            slide_index = int(slide_index)
-        except (TypeError, ValueError):
-            slide_index = 0
 
-        slide_index = max(
-            0,
-            min(slide_index, len(st.session_state.slides) - 1),
-        )
+            with st.spinner("Gemini is thinking..."):
 
-        current_slide = st.session_state.slides[slide_index]
-
-        with st.spinner("Gemini is thinking..."):
-            try:
                 result = generate_ai_response(
                     user_prompt=user_prompt,
-                    slide_index=slide_index,
-                    slide_count=len(st.session_state.slides),
+                    slide_index=current_index,
+                    slide_count=total_slides,
                     image_bytes=current_slide["bytes"],
                     mime_type=current_slide["mime_type"],
                 )
-                st.session_state.ai_response = result
-                st.session_state.ai_response_id += 1
-                st.session_state.last_error = None
-            except Exception as exc:
-                st.session_state.last_error = str(exc)
-                st.session_state.ai_response = {
-                    "type": "answer",
-                    "spoken_text": "Sorry, I couldn't process that request.",
-                    "display_text": f"AI request failed: {exc}",
-                }
-                st.session_state.ai_response_id += 1
 
-        # Rerender the component with the newly generated response.
-        st.rerun()
+                st.session_state.ai_response = result
+
+                if result["type"] == "slide":
+
+                    st.session_state.generated_slides.append(
+                        result
+                    )
+
+        except Exception as exc:
+
+            st.error(f"AI Error: {exc}")
+
+
+# =========================================================
+# AI RESPONSE DISPLAY
+# =========================================================
+
+if st.session_state.ai_response:
+
+    result = st.session_state.ai_response
+
+    st.divider()
+
+    if result["type"] == "answer":
+
+        st.subheader("💡 AI Explanation")
+
+        st.markdown(
+            result["display_text"]
+        )
+
+    elif result["type"] == "slide":
+
+        st.subheader("🎨 AI Generated Slide")
+
+        st.markdown(
+            f"""
+            <div style="
+                background: linear-gradient(135deg, #172554, #312e81);
+                padding: 35px;
+                border-radius: 16px;
+                color: white;
+                min-height: 300px;
+            ">
+                <h1 style="color:white; text-align:center;">
+                    {result["title"]}
+                </h1>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        for bullet in result["bullets"]:
+
+            st.markdown(f"### • {bullet}")
+
+
+# =========================================================
+# GENERATED SLIDE HISTORY
+# =========================================================
+
+if st.session_state.generated_slides:
+
+    st.divider()
+
+    st.subheader("📚 AI Generated Slides")
+
+    for number, slide in enumerate(
+        st.session_state.generated_slides,
+        start=1
+    ):
+
+        with st.expander(
+            f"Generated Slide {number}: {slide['title']}"
+        ):
+
+            st.markdown(
+                f"## {slide['title']}"
+            )
+
+            for bullet in slide["bullets"]:
+
+                st.markdown(f"- {bullet}")
+
+
+# =========================================================
+# FOOTER
+# =========================================================
+
+st.divider()
+
+st.caption(
+    "AI-Enabled Presentation Player | Powered by Google Gemini"
+)
