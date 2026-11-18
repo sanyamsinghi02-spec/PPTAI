@@ -29,7 +29,8 @@ MAX_SLIDES = 100
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
-MODEL_NAME = st.secrets.get("GEMINI_MODEL", "gemini-1.5-flash")
+# Safe working models
+GEMINI_MODEL_NAME = st.secrets.get("GEMINI_MODEL", "gemini-1.5-flash")
 
 # =========================================================
 # SESSION STATE INITIALIZATION
@@ -50,7 +51,7 @@ for key, value in DEFAULTS.items():
         st.session_state[key] = value
 
 # =========================================================
-# DUAL API HANDLER (GROQ + GEMINI FALLBACK)
+# DUAL API HANDLER (GROQ + GEMINI MULTI-KEY POOL + TIMEOUTS)
 # =========================================================
 
 def get_gemini_api_keys():
@@ -129,7 +130,7 @@ If the user explicitly asks to create, add, or generate a slide, return ONLY a J
         except Exception as exc:
             last_error = exc
 
-    # 2. FALLBACK TO GEMINI KEYS POOL WITH IMAGE PAYLOADS
+    # 2. FALLBACK TO MULTI-KEY GEMINI POOL WITH IMAGE PAYLOADS
     gemini_keys = get_gemini_api_keys()
     if gemini_keys:
         for api_key in gemini_keys:
@@ -143,7 +144,7 @@ If the user explicitly asks to create, add, or generate a slide, return ONLY a J
                     types.Part.from_bytes(data=slide_bytes, mime_type=mime_type),
                 ]
                 response = client.models.generate_content(
-                    model=MODEL_NAME,
+                    model=GEMINI_MODEL_NAME,
                     contents=contents,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
@@ -239,7 +240,7 @@ with st.sidebar:
                 st.error(str(exc))
 
     st.divider()
-    st.caption(f"Gemini model: {MODEL_NAME}")
+    st.caption(f"Active Model: {GEMINI_MODEL_NAME} + Groq Fallback")
     if st.button("Clear conversation", use_container_width=True):
         st.session_state.conversation = []
         st.session_state.ai_response = None
@@ -521,7 +522,7 @@ if (SpeechRecognition) {
     recognition.onstart = () => { listening = true; micButton.classList.add("listening"); micButton.textContent = "🔴 Listening..."; };
     recognition.onresult = (e) => { promptBox.value = e.results[0][0].transcript; sendPrompt(); };
     recognition.onend = () => { listening = false; micButton.classList.remove("listening"); micButton.textContent = "🎙 Speak"; };
-    micButton.addEventListener("click", () => { if (listening) recognition.stop(); else recognition.start(); }>();
+    micButton.addEventListener("click", () => { if (listening) recognition.stop(); else recognition.start(); });
 } else {
     micButton.disabled = true;
     micButton.textContent = "Voice N/A";
