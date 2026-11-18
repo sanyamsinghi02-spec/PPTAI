@@ -192,10 +192,9 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
       if (currentSlide > 0) { currentSlide--; updateSlides(); }
     }
 
-    // Text-to-Speech (Oral Response) Function
     function speakText(text) {
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); // Stop any ongoing speech
+        window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 1.0;
         utterance.pitch = 1.0;
@@ -352,7 +351,21 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 </html>
 """
 
-  return (
-      html_template.replace("__SLIDES_CONTENT__", slides_html)
-      .replace("__SLIDE_TOTAL__", str(len(slides_b64)))
-      .replace("__API_KEYS_
+  return html_template.replace("__SLIDES_CONTENT__", slides_html).replace("__SLIDE_TOTAL__", str(len(slides_b64))).replace("__API_KEYS_JSON__", keys_json)
+
+
+if st.button("🚀 Launch AI Presentation Player", type="primary"):
+  if not uploaded_file:
+    st.error("Please upload a slides .zip file.")
+  else:
+    with st.spinner("Preparing presentation deck..."):
+      try:
+        slides_b64 = extract_slides_from_zip(uploaded_file.getvalue())
+        if not slides_b64:
+          st.error("No valid image files found inside the zip archive.")
+        else:
+          html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
+          st.components.v1.html(html_content, height=750, scrolling=False)
+          st.success("✅ Successfully loaded presentation with conversational oral AI responses!")
+      except Exception as e:
+        st.error(f"Error processing presentation: {e}")
