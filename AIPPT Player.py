@@ -20,8 +20,8 @@ st.set_page_config(
 
 st.title("✨ AI-Enabled Presentation Player")
 st.markdown(
-    "Upload your slides **.zip file** to launch the interactive player with"
-    " **live voice-controlled AI slide generation**."
+    "Upload your slides **.zip file** to launch an interactive player with"
+    " **full conversational voice AI**."
 )
 
 uploaded_file = st.file_uploader(
@@ -80,19 +80,20 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 
     .ppt-image-slide img { width: 100%; height: 100%; object-fit: contain; }
 
-    .ai-generated-slide { padding: 6% 10%; align-items: flex-start; justify-content: center; background: radial-gradient(circle at top right, #1e293b, #0f172a); }
-    .ai-generated-slide h1 { font-size: 3.2rem; color: #38bdf8; margin-bottom: 1.5rem; line-height: 1.2; }
-    .ai-generated-slide ul { list-style: none; font-size: 1.7rem; line-height: 1.7; color: #e2e8f0; }
-    .ai-generated-slide li { margin-bottom: 1rem; padding-left: 1.8rem; position: relative; }
+    .ai-generated-slide { padding: 5% 8%; align-items: flex-start; justify-content: center; background: radial-gradient(circle at top right, #1e293b, #0f172a); overflow-y: auto; }
+    .ai-generated-slide h1 { font-size: 2.5rem; color: #38bdf8; margin-bottom: 1.2rem; line-height: 1.2; }
+    .ai-generated-slide p { font-size: 1.3rem; line-height: 1.6; color: #e2e8f0; margin-bottom: 1rem; }
+    .ai-generated-slide ul { list-style: none; font-size: 1.3rem; line-height: 1.6; color: #e2e8f0; }
+    .ai-generated-slide li { margin-bottom: 0.8rem; padding-left: 1.5rem; position: relative; }
     .ai-generated-slide li::before { content: "▹"; position: absolute; left: 0; color: #38bdf8; font-weight: bold; }
 
     #focus-overlay {
-      position: absolute; inset: 0; background: rgba(0,0,0,0.6);
+      position: absolute; inset: 0; background: rgba(0,0,0,0.7);
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       z-index: 200; cursor: pointer; transition: opacity 0.3s ease;
     }
     #focus-overlay.hidden { opacity: 0; pointer-events: none; }
-    .focus-box { background: #0f172a; border: 2px solid #38bdf8; padding: 20px 30px; border-radius: 12px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+    .focus-box { background: #0f172a; border: 2px solid #38bdf8; padding: 25px 35px; border-radius: 12px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
     .focus-box h2 { color: #38bdf8; margin-bottom: 8px; font-size: 1.5rem; }
     .focus-box p { color: #94a3b8; font-size: 0.95rem; }
 
@@ -138,7 +139,7 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
   <div id="focus-overlay" onclick="activatePlayer()">
     <div class="focus-box">
       <h2>✨ Click Here to Start Presentation</h2>
-      <p>Click once to enable keyboard controls, navigation, and voice AI.</p>
+      <p>Click once to enable keyboard navigation, voice AI, and oral speech responses.</p>
     </div>
   </div>
 
@@ -153,7 +154,7 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 
   <div id="ai-bar">
     <span>✨</span>
-    <input type="text" id="ai-input" placeholder="Type or click mic to speak command..." />
+    <input type="text" id="ai-input" placeholder="Ask anything or request a slide (voice enabled)..." />
     <button id="mic-btn" class="mic-btn" onclick="toggleSpeechRecognition()" title="Voice Input">🎤</button>
     <span id="ai-status"></span>
   </div>
@@ -189,6 +190,17 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 
     function prevSlide() {
       if (currentSlide > 0) { currentSlide--; updateSlides(); }
+    }
+
+    // Text-to-Speech (Oral Response) Function
+    function speakText(text) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // Stop any ongoing speech
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
     }
 
     let recognition = null;
@@ -281,7 +293,7 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
     });
 
     async function triggerAI(prompt) {
-      aiStatus.textContent = "Generating slide...";
+      aiStatus.textContent = "Thinking...";
       aiInput.disabled = true;
 
       let currentKey = API_KEYS[keyIndex % API_KEYS.length];
@@ -289,14 +301,14 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 
       try {
         const res = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + currentKey,
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + currentKey,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               contents: [{
                 parts: [{
-                  text: 'Create a presentation slide for: "' + prompt + '". Return strictly valid JSON with keys "title" (string) and "bullets" (array of 3 to 5 concise strings, max 12 words each). No markdown.'
+                  text: 'You are an intelligent presentation assistant. The user asked: "' + prompt + '". If the user wants a slide generated, return JSON with keys "type": "slide", "title" (string), and "bullets" (array of 3-5 strings). If the user asked a general question or wants a conversational/oral answer, return JSON with keys "type": "answer", "spoken_text" (a thorough conversational response to be read aloud), and "display_text" (a clear formatted summary for the screen). Strict valid JSON only.'
                 }]
               }],
               generationConfig: { responseMimeType: "application/json" }
@@ -305,12 +317,19 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
         );
 
         const data = await res.json();
-        const slideObj = JSON.parse(data.candidates[0].content.parts[0].text);
+        const aiResponse = JSON.parse(data.candidates[0].content.parts[0].text);
 
         const newSection = document.createElement("section");
         newSection.className = "slide ai-generated-slide";
-        const bulletsHtml = slideObj.bullets.map(b => '<li>' + b + '</li>').join("");
-        newSection.innerHTML = '<h1>' + slideObj.title + '</h1><ul>' + bulletsHtml + '</ul>';
+
+        if (aiResponse.type === "answer") {
+          newSection.innerHTML = '<h1>AI Assistant</h1><p>' + aiResponse.display_text.replace(/\\n/g, '<br>') + '</p>';
+          speakText(aiResponse.spoken_text);
+        } else {
+          const bulletsHtml = aiResponse.bullets.map(b => '<li>' + b + '</li>').join("");
+          newSection.innerHTML = '<h1>' + aiResponse.title + '</h1><ul>' + bulletsHtml + '</ul>';
+          speakText(aiResponse.title + ". " + aiResponse.bullets.join(". "));
+        }
 
         const slides = document.querySelectorAll(".slide");
         slides[currentSlide].after(newSection);
@@ -336,24 +355,4 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
   return (
       html_template.replace("__SLIDES_CONTENT__", slides_html)
       .replace("__SLIDE_TOTAL__", str(len(slides_b64)))
-      .replace("__API_KEYS_JSON__", keys_json)
-  )
-
-
-if st.button("🚀 Launch AI Presentation Player", type="primary"):
-  if not uploaded_file:
-    st.error("Please upload a slides .zip file.")
-  else:
-    with st.spinner("Preparing presentation deck..."):
-      try:
-        slides_b64 = extract_slides_from_zip(uploaded_file.getvalue())
-        if not slides_b64:
-          st.error("No valid image files found inside the zip archive.")
-        else:
-          html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
-          st.components.v1.html(html_content, height=750, scrolling=False)
-          st.success(
-              "✅ Successfully loaded presentation into the interactive player!"
-          )
-      except Exception as e:
-        st.error(f"Error processing presentation: {e}")
+      .replace("__API_KEYS_
