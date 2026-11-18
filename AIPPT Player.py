@@ -300,7 +300,7 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 
       try {
         const res = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=' + currentKey,
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + currentKey,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -332,4 +332,53 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
           newSection.innerHTML = '<h1>AI Assistant</h1><p>' + aiResponse.display_text.replace(/\\n/g, '<br>') + '</p>';
           speakText(aiResponse.spoken_text);
         } else {
-          const bullets
+          const bulletsHtml = aiResponse.bullets.map(b => '<li>' + b + '</li>').join("");
+          newSection.innerHTML = '<h1>' + aiResponse.title + '</h1><ul>' + bulletsHtml + '</ul>';
+          speakText(aiResponse.title + ". " + aiResponse.bullets.join(". "));
+        }
+
+        const slides = document.querySelectorAll(".slide");
+        slides[currentSlide].after(newSection);
+
+        currentSlide++;
+        updateSlides();
+        aiInput.value = "";
+        aiBar.classList.remove("open");
+        playerBody.focus();
+      } catch (err) {
+        console.error("AI Error:", err);
+        aiStatus.textContent = "Error: " + err.message;
+      } finally {
+        aiInput.disabled = false;
+        setTimeout(() => { if (aiStatus.textContent.startsWith("Error")) aiStatus.textContent = ""; }, 4000);
+      }
+    }
+  </script>
+</body>
+</html>"""
+
+  return (
+      html_template.replace("__SLIDES_CONTENT__", slides_html)
+      .replace("__SLIDE_TOTAL__", str(len(slides_b64)))
+      .replace("__API_KEYS_JSON__", keys_json)
+  )
+
+
+if st.button("🚀 Launch AI Presentation Player", type="primary"):
+  if not uploaded_file:
+    st.error("Please upload a slides .zip file.")
+  else:
+    with st.spinner("Preparing presentation deck..."):
+      try:
+        slides_b64 = extract_slides_from_zip(uploaded_file.getvalue())
+        if not slides_b64:
+          st.error("No valid image files found inside the zip archive.")
+        else:
+          html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
+          st.components.v1.html(html_content, height=750, scrolling=False)
+          st.success(
+              "✅ Successfully loaded presentation with conversational oral AI"
+              " responses!"
+          )
+      except Exception as e:
+        st.error(f"Error processing presentation: {e}")
