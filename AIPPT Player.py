@@ -28,7 +28,7 @@ MAX_SLIDES = 100
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
-MODEL_NAME = st.secrets.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL_NAME = st.secrets.get("GEMINI_MODEL", "gemini-1.5-flash")
 
 # =========================================================
 # SESSION STATE INITIALIZATION
@@ -49,7 +49,7 @@ for key, value in DEFAULTS.items():
         st.session_state[key] = value
 
 # =========================================================
-# GEMINI API HANDLER
+# GEMINI API HANDLER (FAST SPEECH / TEXT PROCESSING)
 # =========================================================
 
 def get_api_keys():
@@ -68,31 +68,31 @@ def parse_json_response(response_text):
     cleaned = re.sub(r"\s*```$", "", cleaned)
     return json.loads(cleaned)
 
-def generate_ai_response(user_prompt, slide_index, slide_count, slide_bytes, mime_type):
+def generate_ai_response(user_prompt, slide_index, slide_count, slide_name):
     api_keys = get_api_keys()
     if not api_keys:
         raise ValueError("No Gemini API key found under Streamlit Secrets.")
 
-    history = st.session_state.conversation[-12:]
+    history = st.session_state.conversation[-8:]
     conversation_text = ""
     for item in history:
         role = "User" if item["role"] == "user" else "Assistant"
         conversation_text += f"\n{role}: {item['text']}\n"
 
     prompt = f"""
-You are a friendly, intelligent, conversational AI presentation tutor.
-The user is viewing slide {slide_index + 1} of {slide_count}.
+You are a friendly, intelligent, conversational AI presentation tutor and voice assistant.
+The user is viewing slide {slide_index + 1} of {slide_count} (Filename: {slide_name}).
 
 CONVERSATION SO FAR:
 {conversation_text}
 
-LATEST USER MESSAGE:
+LATEST USER SPEECH/MESSAGE:
 {user_prompt}
 
 If the user asks a question or wants a conversational response, return this JSON:
 {{
   "type": "answer",
-  "spoken_text": "A natural, friendly answer suitable for speaking aloud.",
+  "spoken_text": "A natural, friendly answer optimized for text-to-speech reading aloud.",
   "display_text": "A readable answer for the screen."
 }}
 
@@ -105,7 +105,7 @@ If the user explicitly asks to create, add, or generate a slide, return:
     "Second important point",
     "Third important point"
   ],
-  "spoken_text": "Briefly introduce the new slide."
+  "spoken_text": "Briefly introduce the new slide aloud."
 }}
 
 Return only valid JSON.
@@ -114,18 +114,17 @@ Return only valid JSON.
     last_error = None
     for api_key in api_keys:
         try:
-            client = genai.Client(api_key=api_key)
-            contents = [
-                types.Part.from_text(text=prompt),
-                types.Part.from_bytes(data=slide_bytes, mime_type=mime_type),
-            ]
+            client = genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(timeout=15_000)
+            )
             response = client.models.generate_content(
                 model=MODEL_NAME,
-                contents=contents,
+                contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     temperature=0.6,
-                    max_output_tokens=1500,
+                    max_output_tokens=1000,
                 ),
             )
             data = parse_json_response(response.text)
@@ -174,8 +173,6 @@ def extract_slides(zip_bytes):
                     continue
                 slides.append({
                     "name": Path(info.filename).name,
-                    "bytes": image_bytes,
-                    "mime_type": mime_type,
                     "src": f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("ascii"),
                 })
     except zipfile.BadZipFile as exc:
@@ -189,7 +186,7 @@ def extract_slides(zip_bytes):
 # =========================================================
 
 st.title("✨ AI Presentation Player")
-st.caption("Present, navigate, and have a voice conversation with your AI tutor.")
+st.caption("Present, navigate, and have full speech-to-speech conversations with your AI tutor.")
 
 with st.sidebar:
     st.header("Presentation")
@@ -217,7 +214,7 @@ with st.sidebar:
                 st.error(str(exc))
 
     st.divider()
-    st.caption(f"Gemini model: {MODEL_NAME}")
+    st.caption(f"Gemini model: {MODEL_NAME} (Voice Mode)")
     if st.button("Clear conversation", use_container_width=True):
         st.session_state.conversation = []
         st.session_state.ai_response = None
@@ -315,21 +312,21 @@ textarea:focus {{ border-color: #818cf8; }}
         <aside class="assistant">
             <div class="assistant-header">
                 <h3>🤖 AI Tutor</h3>
-                <p>Talk naturally. Ask questions about your slides.</p>
+                <p>Talk naturally. Use speech to ask questions.</p>
             </div>
             <div class="messages" id="messages">
                 <div class="message ai-message">
                     <div class="message-label">AI TUTOR</div>
-                    Hello! Ask me to explain a slide, give examples, or create a new slide.
+                    Hello! Click "🎙 Speak" to talk to me by voice.
                 </div>
             </div>
             <div class="composer">
-                <textarea id="prompt" placeholder="Ask anything about this slide..."></textarea>
+                <textarea id="prompt" placeholder="Speak or type your question..."></textarea>
                 <div class="composer-buttons">
                     <button id="micBtn" class="mic">🎙 Speak</button>
                     <button id="sendBtn" class="primary">Send ➤</button>
                 </div>
-                <div class="voice-note">AI answers can be spoken aloud.</div>
+                <div class="voice-note">Speech is automatically transcribed and read aloud.</div>
                 <div id="notice"></div>
             </div>
         </aside>
@@ -448,13 +445,13 @@ function speak(text) {{
     }}
 }}
 
-function sendPrompt() {{
-    const prompt = String(promptBox.value || "").trim();
+function sendPrompt(customPrompt) {{
+    const prompt = String(customPrompt || promptBox.value || "").trim();
     if (!prompt) return;
 
     addMessage("user", prompt);
     promptBox.value = "";
-    notice.textContent = "AI is thinking...";
+    notice.textContent = "Processing speech request...";
     status.textContent = "AI is thinking...";
 
     setComponentValue({{
@@ -464,12 +461,11 @@ function sendPrompt() {{
     }});
 }}
 
-document.getElementById("sendBtn").addEventListener("click", sendPrompt);
+document.getElementById("sendBtn").addEventListener("click", () => sendPrompt());
 promptBox.addEventListener("keydown", (e) => {{
     if (e.key === "Enter" && !e.shiftKey) {{ e.preventDefault(); sendPrompt(); }}
 }});
 
-// Handle initial/passed AI response if any
 const initialResponse = {response_data};
 if (initialResponse) {{
     notice.textContent = "";
@@ -486,18 +482,58 @@ if (initialResponse) {{
     }}
 }}
 
+// Setup Speech Recognition for Voice Requests
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const micButton = document.getElementById("micBtn");
+
 if (SpeechRecognition) {{
     recognition = new SpeechRecognition();
     recognition.lang = "en-IN";
-    recognition.onstart = () => {{ listening = true; micButton.classList.add("listening"); micButton.textContent = "🔴 Listening..."; }};
-    recognition.onresult = (e) => {{ promptBox.value = e.results[0][0].transcript; sendPrompt(); }};
-    recognition.onend = () => {{ listening = false; micButton.classList.remove("listening"); micButton.textContent = "🎙 Speak"; }};
-    micButton.addEventListener("click", () => {{ if (listening) recognition.stop(); else recognition.start(); }});
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {{
+        listening = true;
+        micButton.classList.add("listening");
+        micButton.textContent = "🔴 Listening...";
+        notice.textContent = "Listening to your speech...";
+    }};
+
+    recognition.onresult = (e) => {{
+        const speechText = e.results[0][0].transcript;
+        promptBox.value = speechText;
+        notice.textContent = "Speech captured! Sending request...";
+        sendPrompt(speechText);
+    }};
+
+    recognition.onerror = (e) => {{
+        notice.textContent = "Microphone error: " + e.error;
+        listening = false;
+        micButton.classList.remove("listening");
+        micButton.textContent = "🎙 Speak";
+    }};
+
+    recognition.onend = () => {{
+        listening = false;
+        micButton.classList.remove("listening");
+        micButton.textContent = "🎙 Speak";
+    }};
+
+    micButton.addEventListener("click", () => {{
+        if (listening) {{
+            recognition.stop();
+        }} else {{
+            try {{
+                recognition.start();
+            } catch (err) {{
+                notice.textContent = "Could not start microphone.";
+            }}
+        }}
+    }});
 }} else {{
     micButton.disabled = true;
     micButton.textContent = "Voice N/A";
+    notice.textContent = "Speech recognition not supported in this browser. Use Chrome.";
 }}
 
 sendToStreamlit("streamlit:componentReady", {{ apiVersion: 1 }});
@@ -513,7 +549,7 @@ component_value = components.html(
     scrolling=False,
 )
 
-# Process backend AI requests when component value updates
+# Process speech/text AI request instantly
 if isinstance(component_value, dict):
     request_id = component_value.get("request_id")
     user_prompt = str(component_value.get("prompt", "")).strip()
@@ -523,7 +559,7 @@ if isinstance(component_value, dict):
         st.session_state.last_request_id = request_id
         slides = st.session_state.slides
         slide_index = max(0, min(slide_index, len(slides) - 1))
-        current_slide = slides[slide_index]
+        current_slide_name = slides[slide_index]["name"]
 
         st.session_state.conversation.append({"role": "user", "text": user_prompt})
         try:
@@ -531,8 +567,7 @@ if isinstance(component_value, dict):
                 user_prompt=user_prompt,
                 slide_index=slide_index,
                 slide_count=len(slides),
-                slide_bytes=current_slide["bytes"],
-                mime_type=current_slide["mime_type"],
+                slide_name=current_slide_name,
             )
             st.session_state.conversation.append({"role": "assistant", "text": result.get("spoken_text", "")})
             st.session_state.ai_response = result
@@ -543,7 +578,7 @@ if isinstance(component_value, dict):
             st.session_state.last_error = str(exc)
             st.session_state.ai_response = {
                 "type": "answer",
-                "spoken_text": "Sorry, an error occurred.",
+                "spoken_text": "Sorry, your speech request failed or timed out. Please try again.",
                 "display_text": f"Error: {exc}"
             }
             st.session_state.ai_response_id += 1
