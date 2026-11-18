@@ -11,7 +11,7 @@ from google import genai
 from google.genai import types
 
 # =========================================================
-# CONFIGURATION
+# CONFIGURATION & API HANDLER (MUST BE AT THE VERY TOP)
 # =========================================================
 
 st.set_page_config(
@@ -32,29 +32,6 @@ MODEL_NAME = st.secrets.get(
     "gemini-2.5-flash"
 )
 
-# =========================================================
-# SESSION STATE
-# =========================================================
-
-DEFAULTS = {
-    "slides": [],
-    "loaded": False,
-    "ai_response": None,
-    "ai_response_id": 0,
-    "last_request_id": None,
-    "conversation": [],
-    "last_error": None,
-}
-
-for key, value in DEFAULTS.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-
-# =========================================================
-# GEMINI API
-# =========================================================
-
 def get_api_keys():
     keys = [
         st.secrets.get("GEMINI_API_KEY", ""),
@@ -63,32 +40,20 @@ def get_api_keys():
     ]
     return [key.strip() for key in keys if key and key.strip()]
 
-
 def parse_json_response(response_text):
     if not response_text:
         raise ValueError("Gemini returned an empty response.")
-
     cleaned = response_text.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned)
     return json.loads(cleaned)
 
-
-def generate_ai_response(
-    user_prompt,
-    slide_index,
-    slide_count,
-    slide_bytes,
-    mime_type,
-):
+def generate_ai_response(user_prompt, slide_index, slide_count, slide_bytes, mime_type):
     api_keys = get_api_keys()
-
     if not api_keys:
-        raise ValueError(
-            "No Gemini API key found. Add GEMINI_API_KEY under Streamlit Secrets."
-        )
+        raise ValueError("No Gemini API key found under Streamlit Secrets.")
 
-    history = st.session_state.conversation[-12:]
+    history = st.session_state.get("conversation", [])[-12:]
     conversation_text = ""
     for item in history:
         role = "User" if item["role"] == "user" else "Assistant"
@@ -134,7 +99,6 @@ Return only valid JSON.
                 types.Part.from_text(text=prompt),
                 types.Part.from_bytes(data=slide_bytes, mime_type=mime_type),
             ]
-
             response = client.models.generate_content(
                 model=MODEL_NAME,
                 contents=contents,
@@ -144,37 +108,74 @@ Return only valid JSON.
                     max_output_tokens=1500,
                 ),
             )
-
             data = parse_json_response(response.text)
-
-            if data.get("type") == "slide":
-                bullets = data.get("bullets", [])
-                if not isinstance(bullets, list):
-                    bullets = []
-                bullets = [str(item).strip()[:500] for item in bullets[:5] if str(item).strip()]
-
-                return {
-                    "type": "slide",
-                    "title": str(data.get("title", "AI Generated Slide"))[:180],
-                    "bullets": bullets or ["No content returned."],
-                    "spoken_text": str(data.get("spoken_text", "Here is your new slide."))[:3000],
-                }
-
-            if data.get("type") == "answer":
-                spoken = str(data.get("spoken_text", "I couldn't generate an answer."))[:6000]
-                return {
-                    "type": "answer",
-                    "spoken_text": spoken,
-                    "display_text": str(data.get("display_text", spoken))[:6000],
-                }
-
+            if data.get("type") in ["slide", "answer"]:
+                return data
             raise ValueError("Unsupported response type from Gemini.")
-
         except Exception as exc:
             last_error = exc
 
     raise RuntimeError(f"Gemini request failed: {last_error}")
 
+# =========================================================
+# HANDLE FETCH REQUESTS FROM FRONTEND IMMEDIATELY
+# =========================================================
+
+query_params = st.query_params
+if "ai_prompt" in query_params:
+    user_prompt = query_params["ai_prompt"]
+    try:
+        slide_index = int(query_params.get("slide_index", 0))
+    except (TypeError, ValueError):
+        slide_index = 0
+
+    slides = st.session_state.get("slides", [])
+    if slides:
+        slide_index = max(0, min(slide_index, len(slides) - 1))
+        current_slide = slides[slide_index]
+        
+        if "conversation" not in st.session_state:
+            st.session_state.conversation = []
+            
+        st.session_state.conversation.append({"role": "user", "text": user_prompt})
+        try:
+            result = generate_ai_response(
+                user_prompt=user_prompt,
+                slide_index=slide_index,
+                slide_count=len(slides),
+                slide_bytes=current_slide["bytes"],
+                mime_type=current_slide["mime_type"],
+            )
+            st.session_state.conversation.append({"role": "assistant", "text": result.get("spoken_text", "")})
+            st.json(result)
+        except Exception as exc:
+            st.json({
+                "type": "answer",
+                "spoken_text": "Sorry, I encountered an error processing your request.",
+                "display_text": f"Error: {exc}"
+            })
+    else:
+        st.json({
+            "type": "answer",
+            "spoken_text": "Please load a presentation first.",
+            "display_text": "No slides loaded in session."
+        })
+    st.stop()
+
+# =========================================================
+# SESSION STATE SETUP
+# =========================================================
+
+DEFAULTS = {
+    "slides": [],
+    "loaded": False,
+    "conversation": [],
+    "last_error": None,
+}
+
+for key, value in DEFAULTS.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 # =========================================================
 # ZIP PROCESSING
@@ -183,14 +184,11 @@ Return only valid JSON.
 def natural_sort_key(value):
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", value)]
 
-
 def extract_slides(zip_bytes):
     if len(zip_bytes) > MAX_ZIP_BYTES:
         raise ValueError("ZIP file exceeds the 50 MB limit.")
-
     slides = []
     total_size = 0
-
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
             candidates = []
@@ -199,26 +197,21 @@ def extract_slides(zip_bytes):
                     continue
                 if Path(info.filename).suffix.lower() in ALLOWED_EXTENSIONS:
                     candidates.append(info)
-
             candidates.sort(key=lambda item: natural_sort_key(item.filename))
-
             if not candidates:
                 raise ValueError("No PNG, JPG, JPEG or WEBP images found in the ZIP.")
             if len(candidates) > MAX_SLIDES:
                 raise ValueError(f"Maximum allowed slides: {MAX_SLIDES}.")
-
             for info in candidates:
                 if info.file_size > MAX_IMAGE_BYTES:
                     raise ValueError(f"{Path(info.filename).name} exceeds 10 MB.")
                 total_size += info.file_size
                 if total_size > MAX_TOTAL_IMAGE_BYTES:
                     raise ValueError("Total image size exceeds 40 MB.")
-
                 image_bytes = archive.read(info)
                 mime_type = mimetypes.guess_type(info.filename)[0]
                 if mime_type not in {"image/png", "image/jpeg", "image/webp"}:
                     continue
-
                 slides.append({
                     "name": Path(info.filename).name,
                     "bytes": image_bytes,
@@ -227,44 +220,16 @@ def extract_slides(zip_bytes):
                 })
     except zipfile.BadZipFile as exc:
         raise ValueError("The uploaded file is not a valid ZIP.") from exc
-
     if not slides:
         raise ValueError("No supported slide images could be read.")
     return slides
 
-
 # =========================================================
-# APP SIDEBAR & HANDLING API REQUESTS FROM FRONTEND
+# APP SIDEBAR & INTERFACE
 # =========================================================
 
 st.title("✨ AI Presentation Player")
 st.caption("Present, navigate, and have a voice conversation with your AI tutor.")
-
-query_params = st.query_params
-if "ai_prompt" in query_params:
-    user_prompt = query_params["ai_prompt"]
-    slide_index = int(query_params.get("slide_index", 0))
-    
-    if st.session_state.slides:
-        slide_index = max(0, min(slide_index, len(st.session_state.slides) - 1))
-        current_slide = st.session_state.slides[slide_index]
-        
-        st.session_state.conversation.append({"role": "user", "text": user_prompt})
-        try:
-            result = generate_ai_response(
-                user_prompt=user_prompt,
-                slide_index=slide_index,
-                slide_count=len(st.session_state.slides),
-                slide_bytes=current_slide["bytes"],
-                mime_type=current_slide["mime_type"],
-            )
-            st.session_state.conversation.append({"role": "assistant", "text": result.get("spoken_text", "")})
-            st.json(result)
-        except Exception as exc:
-            st.json({"type": "answer", "spoken_text": "Error processing request.", "display_text": str(exc)})
-    else:
-        st.json({"type": "answer", "spoken_text": "No presentation loaded.", "display_text": "Please load a presentation first."})
-    st.stop()
 
 with st.sidebar:
     st.header("Presentation")
@@ -282,7 +247,6 @@ with st.sidebar:
                 with st.spinner("Loading your slides..."):
                     st.session_state.slides = extract_slides(uploaded_file.getvalue())
                     st.session_state.loaded = True
-                    st.session_state.ai_response = None
                     st.session_state.conversation = []
                     st.session_state.last_error = None
                 st.success(f"{len(st.session_state.slides)} slides loaded.")
@@ -295,13 +259,12 @@ with st.sidebar:
         st.session_state.conversation = []
         st.rerun()
 
-if st.session_state.last_error:
+if st.session_state.get("last_error"):
     st.error(st.session_state.last_error)
 
-if not st.session_state.loaded or not st.session_state.slides:
+if not st.session_state.get("loaded") or not st.session_state.get("slides"):
     st.info("Upload a ZIP of slide images in the sidebar and select Load presentation.")
     st.stop()
-
 
 # =========================================================
 # RENDER HTML PLAYER VIA ST.COMPONENTS.V1.HTML
