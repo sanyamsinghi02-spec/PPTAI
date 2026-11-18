@@ -3,6 +3,7 @@ import json
 import zipfile
 import io
 import streamlit as st
+import google.generativeai as genai
 
 # ==========================================
 # SECURE MULTI-KEY ROTATION CONFIGURATION
@@ -11,9 +12,36 @@ key1 = st.secrets.get("GEMINI_API_KEY", "")
 key2 = st.secrets.get("GEMINI_API_KEY_2", "")
 key3 = st.secrets.get("GEMINI_API_KEY_3", "")
 
-GEMINI_API_KEYS = f"{key1},{key2},{key3}"
-# ==========================================
+API_KEYS = [k.strip() for k in [key1, key2, key3] if k.strip()]
+key_index = 0
 
+def get_working_model(prompt_text):
+    """Rotates through available API keys and generates content via backend Python SDK."""
+    global key_index
+    if not API_KEYS:
+        raise ValueError("No Gemini API keys found in st.secrets.")
+    
+    last_error = None
+    for _ in range(len(API_KEYS)):
+        current_key = API_KEYS[key_index % len(API_KEYS)]
+        key_index += 1
+        try:
+            genai.configure(api_key=current_key)
+            # Using the stable, universally supported backend model name
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(
+                prompt_text,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            return response.text
+        except Exception as e:
+            last_error = e
+            continue
+    raise Exception(f"All API keys failed. Last error: {last_error}")
+
+# ==========================================
+# STREAMLIT PAGE SETUP
+# ==========================================
 st.set_page_config(
     page_title="AI-Enabled Presentation Player", page_icon="✨", layout="wide"
 )
@@ -21,8 +49,26 @@ st.set_page_config(
 st.title("✨ AI-Enabled Presentation Player")
 st.markdown(
     "Upload your slides **.zip file** to launch an interactive player with"
-    " **full conversational voice AI**."
+    " **full conversational voice AI and oral speech responses**."
 )
+
+# Handle backend AJAX requests coming from the player iframe
+query_params = st.query_params
+if "ai_prompt" in query_params:
+    user_prompt = query_params["ai_prompt"]
+    try:
+        instruction = (
+            f'You are an intelligent presentation assistant. The user asked: "{user_prompt}". '
+            'If the user wants a slide generated, return strictly valid JSON with keys "type": "slide", "title" (string), '
+            'and "bullets" (array of 3-5 strings). If the user asked a general question or wants a conversational/oral answer, '
+            'return strictly valid JSON with keys "type": "answer", "spoken_text" (a thorough conversational response to be read aloud), '
+            'and "display_text" (a clear formatted summary for the screen). No markdown formatting blocks like ```json, just raw JSON.'
+        )
+        raw_json_response = get_working_model(instruction)
+        st.json(json.loads(raw_json_response))
+    except Exception as e:
+        st.json({"error": str(e)})
+    st.stop()
 
 uploaded_file = st.file_uploader(
     "Upload slides archive (.zip)", type=["zip"]
@@ -30,38 +76,35 @@ uploaded_file = st.file_uploader(
 
 
 def extract_slides_from_zip(zip_bytes) -> list[str]:
-  slide_images = []
-  with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-    file_list = sorted(
-        [
-            f
-            for f in z.namelist()
-            if f.lower().endswith((".png", ".jpg", ".jpeg"))
-            and not f.startswith("__MACOSX/")
-        ]
-    )
+    slide_images = []
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+        file_list = sorted(
+            [
+                f
+                for f in z.namelist()
+                if f.lower().endswith((".png", ".jpg", ".jpeg"))
+                and not f.startswith("__MACOSX/")
+            ]
+        )
 
-    for filename in file_list:
-      img_data = z.read(filename)
-      b64 = base64.b64encode(img_data).decode("utf-8")
-      slide_images.append(f"data:image/png;base64,{b64}")
+        for filename in file_list:
+            img_data = z.read(filename)
+            b64 = base64.b64encode(img_data).decode("utf-8")
+            slide_images.append(f"data:image/png;base64,{b64}")
 
-  return slide_images
+    return slide_images
 
 
-def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
-  keys_list = [k.strip() for k in keys_string.split(",") if k.strip()]
-  keys_json = json.dumps(keys_list)
+def build_ai_player_html(slides_b64: list[str]) -> str:
+    slides_html = ""
+    for idx, img_data in enumerate(slides_b64):
+        active_cls = "active" if idx == 0 else ""
+        slides_html += (
+            f'<section class="slide ppt-image-slide {active_cls}"><img'
+            f' src="{img_data}" alt="Slide {idx+1}" /></section>'
+        )
 
-  slides_html = ""
-  for idx, img_data in enumerate(slides_b64):
-    active_cls = "active" if idx == 0 else ""
-    slides_html += (
-        f'<section class="slide ppt-image-slide {active_cls}"><img'
-        f' src="{img_data}" alt="Slide {idx+1}" /></section>'
-    )
-
-  html_template = """<!DOCTYPE html>
+    html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -160,8 +203,6 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
   </div>
 
   <script>
-    const API_KEYS = __API_KEYS_JSON__;
-    let keyIndex = 0;
     let currentSlide = 0;
 
     const aiBar = document.getElementById("ai-bar");
@@ -295,35 +336,13 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
       aiStatus.textContent = "Thinking...";
       aiInput.disabled = true;
 
-      let currentKey = API_KEYS[keyIndex % API_KEYS.length];
-      keyIndex++;
-
       try {
-        const res = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + currentKey,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{
-                parts: [{
-                  text: 'You are an intelligent presentation assistant. The user asked: "' + prompt + '". If the user wants a slide generated, return strictly valid JSON with keys "type": "slide", "title" (string), and "bullets" (array of 3-5 strings). If the user asked a general question or wants a conversational/oral answer, return strictly valid JSON with keys "type": "answer", "spoken_text" (a thorough conversational response to be read aloud), and "display_text" (a clear formatted summary for the screen). No markdown formatting blocks like ```json, just raw JSON.'
-                }]
-              }],
-              generationConfig: { responseMimeType: "application/json" }
-            })
-          }
-        );
-
-        const data = await res.json();
+        const res = await fetch('?ai_prompt=' + encodeURIComponent(prompt));
+        const aiResponse = await res.json();
         
-        if (data.error) {
-          throw new Error(data.error.message || "API Error");
+        if (aiResponse.error) {
+          throw new Error(aiResponse.error);
         }
-
-        const rawText = data.candidates[0].content.parts[0].text;
-        const cleanedText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const aiResponse = JSON.parse(cleanedText);
 
         const newSection = document.createElement("section");
         newSection.className = "slide ai-generated-slide";
@@ -357,28 +376,26 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 </body>
 </html>"""
 
-  return (
-      html_template.replace("__SLIDES_CONTENT__", slides_html)
-      .replace("__SLIDE_TOTAL__", str(len(slides_b64)))
-      .replace("__API_KEYS_JSON__", keys_json)
-  )
+    return (
+        html_template.replace("__SLIDES_CONTENT__", slides_html)
+        .replace("__SLIDE_TOTAL__", str(len(slides_b64)))
+    )
 
 
 if st.button("🚀 Launch AI Presentation Player", type="primary"):
-  if not uploaded_file:
-    st.error("Please upload a slides .zip file.")
-  else:
-    with st.spinner("Preparing presentation deck..."):
-      try:
-        slides_b64 = extract_slides_from_zip(uploaded_file.getvalue())
-        if not slides_b64:
-          st.error("No valid image files found inside the zip archive.")
-        else:
-          html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
-          st.components.v1.html(html_content, height=750, scrolling=False)
-          st.success(
-              "✅ Successfully loaded presentation with conversational oral AI"
-              " responses!"
-          )
-      except Exception as e:
-        st.error(f"Error processing presentation: {e}")
+    if not uploaded_file:
+        st.error("Please upload a slides .zip file.")
+    else:
+        with st.spinner("Preparing presentation deck..."):
+            try:
+                slides_b64 = extract_slides_from_zip(uploaded_file.getvalue())
+                if not slides_b64:
+                    st.error("No valid image files found inside the zip archive.")
+                else:
+                    html_content = build_ai_player_html(slides_b64)
+                    st.components.v1.html(html_content, height=750, scrolling=False)
+                    st.success(
+                        "✅ Successfully loaded presentation with conversational oral AI responses!"
+                    )
+            except Exception as e:
+                st.error(f"Error processing presentation: {e}")
