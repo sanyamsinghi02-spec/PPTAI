@@ -502,15 +502,3 @@ if isinstance(component_value, dict):
 
         st.rerun()
 
-
-# =========================================================
-# PLAYER COMPONENT
-# =========================================================
-
-player_component(
-    slides=component_slides,
-    response=st.session_state.ai_response,
-    response_id=st.session_state.ai_response_id,
-    key="ai_presentation_player",
-    default=None,
-)
