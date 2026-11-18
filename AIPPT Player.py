@@ -1,5 +1,9 @@
 import base64
+import io
 import json
+import tempfile
+import pdfplumber
+from PIL import Image
 import streamlit as st
 
 # ==========================================
@@ -18,13 +22,28 @@ st.set_page_config(
 
 st.title("✨ AI-Enabled Presentation Player")
 st.markdown(
-    "Upload your presentation slide images (`.png` or `.jpg`) to launch them"
-    " in a full-screen player with **live impromptu AI slide generation**."
+    "Upload your presentation exported as a **PDF** (In PowerPoint: *File > Save"
+    " As > PDF*) to launch it in a full-screen player with **live impromptu AI"
+    " slide generation**."
 )
 
-uploaded_files = st.file_uploader(
-    "Upload slide images", type=["png", "jpg", "jpeg"], accept_multiple_files=True
+uploaded_file = st.file_uploader(
+    "Upload presentation file (.pdf)", type=["pdf"]
 )
+
+
+def convert_pdf_to_images_pdfplumber(pdf_path: str) -> list[str]:
+  """Converts PDF pages into base64 PNG images using pdfplumber and Pillow."""
+  slide_images = []
+  with pdfplumber.open(pdf_path) as pdf:
+    for page in pdf.pages:
+      # Render page as a PIL image at high resolution (resolution=200 for clarity)
+      pil_img = page.to_image(resolution=200).original
+      buffered = io.BytesIO()
+      pil_img.save(buffered, format="PNG")
+      b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+      slide_images.append(f"data:image/png;base64,{b64}")
+  return slide_images
 
 
 def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
@@ -192,17 +211,18 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 
 
 if st.button("🚀 Launch AI-Enabled Presentation Player", type="primary"):
-  if not uploaded_files:
-    st.error("Please upload at least one slide image.")
+  if not uploaded_file:
+    st.error("Please upload a presentation PDF file.")
   else:
-    with st.spinner("Building presentation player..."):
+    with st.spinner("Processing PDF presentation slides..."):
       try:
-        slides_b64 = []
-        for file in uploaded_files:
-          b64 = base64.b64encode(file.getvalue()).decode("utf-8")
-          slides_b64.append(f"data:image/png;base64,{b64}")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+          tmp.write(uploaded_file.getvalue())
+          temp_pdf_path = tmp.name
 
+        slides_b64 = convert_pdf_to_images_pdfplumber(temp_pdf_path)
         html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
+
         st.components.v1.html(html_content, height=750, scrolling=False)
         st.success(
             f"✅ Successfully loaded {len(slides_b64)} slides into the player!"
