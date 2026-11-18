@@ -132,7 +132,7 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
     .mic-btn.listening { background: #22c55e; animation: pulse 1.5s infinite; }
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
 
-    #ai-status { font-size: 0.85rem; color: #38bdf8; white-space: nowrap; }
+    #ai-status { font-size: 0.85rem; color: #38bdf8; white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
   </style>
 </head>
 <body tabindex="0" id="player-body">
@@ -307,7 +307,7 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
             body: JSON.stringify({
               contents: [{
                 parts: [{
-                  text: 'You are an intelligent presentation assistant. The user asked: "' + prompt + '". If the user wants a slide generated, return JSON with keys "type": "slide", "title" (string), and "bullets" (array of 3-5 strings). If the user asked a general question or wants a conversational/oral answer, return JSON with keys "type": "answer", "spoken_text" (a thorough conversational response to be read aloud), and "display_text" (a clear formatted summary for the screen). Strict valid JSON only.'
+                  text: 'You are an intelligent presentation assistant. The user asked: "' + prompt + '". If the user wants a slide generated, return strictly valid JSON with keys "type": "slide", "title" (string), and "bullets" (array of 3-5 strings). If the user asked a general question or wants a conversational/oral answer, return strictly valid JSON with keys "type": "answer", "spoken_text" (a thorough conversational response to be read aloud), and "display_text" (a clear formatted summary for the screen). No markdown formatting blocks like ```json, just raw JSON.'
                 }]
               }],
               generationConfig: { responseMimeType: "application/json" }
@@ -316,7 +316,14 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
         );
 
         const data = await res.json();
-        const aiResponse = JSON.parse(data.candidates[0].content.parts[0].text);
+        
+        if (data.error) {
+          throw new Error(data.error.message || "API Error");
+        }
+
+        const rawText = data.candidates[0].content.parts[0].text;
+        const cleanedText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const aiResponse = JSON.parse(cleanedText);
 
         const newSection = document.createElement("section");
         newSection.className = "slide ai-generated-slide";
@@ -339,11 +346,11 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
         aiBar.classList.remove("open");
         playerBody.focus();
       } catch (err) {
-        aiStatus.textContent = "Error! Check API keys.";
-        console.error(err);
+        console.error("AI Error:", err);
+        aiStatus.textContent = "Error: " + err.message;
       } finally {
         aiInput.disabled = false;
-        setTimeout(() => { aiStatus.textContent = ""; }, 2000);
+        setTimeout(() => { if (aiStatus.textContent.startsWith("Error")) aiStatus.textContent = ""; }, 4000);
       }
     }
   </script>
