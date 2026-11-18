@@ -1,9 +1,7 @@
 import base64
-import io
 import json
-import tempfile
-from PIL import Image
-from pypdf import PdfReader
+import zipfile
+import io
 import streamlit as st
 
 # ==========================================
@@ -22,38 +20,33 @@ st.set_page_config(
 
 st.title("✨ AI-Enabled Presentation Player")
 st.markdown(
-    "Upload your presentation exported as a **PDF** to launch it in a"
-    " full-screen player with **live impromptu AI slide generation**."
+    "Upload your presentation slides as a **.zip file** containing images"
+    " (`.png` or `.jpg`) to launch them in a full-screen player with **live"
+    " impromptu AI slide generation**."
 )
 
 uploaded_file = st.file_uploader(
-    "Upload presentation file (.pdf)", type=["pdf"]
+    "Upload slides archive (.zip)", type=["zip"]
 )
 
 
-def convert_pdf_to_images_pypdf(pdf_path: str) -> list[str]:
-  """Extracts embedded images or renders pages from PDF using pypdf and Pillow."""
+def extract_slides_from_zip(zip_bytes) -> list[str]:
+  """Extracts images from a zip file using pure Python standard library."""
   slide_images = []
-  reader = PdfReader(pdf_path)
+  with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+    # Sort file names alphabetically so slides stay in order (slide1.png, slide2.png, etc.)
+    file_list = sorted(
+        [
+            f
+            for f in z.namelist()
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+            and not f.startswith("__MACOSX/")
+        ]
+    )
 
-  for page_idx, page in enumerate(reader.pages):
-    # Check if page has embedded images (typical for exported PPTX PDFs)
-    page_images = page.images
-    if page_images:
-      for img_file in page_images:
-        img_bytes = img_file.data
-        img = Image.open(io.BytesIO(img_bytes))
-        buffered = io.BytesIO()
-        img.save(buffered, format="PNG")
-        b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        slide_images.append(f"data:image/png;base64,{b64}")
-        break  # Take the main slide image per page
-    else:
-      # Fallback blank canvas if no raw image stream is found
-      img = Image.new("RGB", (1280, 720), color=(15, 23, 42))
-      buffered = io.BytesIO()
-      img.save(buffered, format="PNG")
-      b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    for filename in file_list:
+      img_data = z.read(filename)
+      b64 = base64.b64encode(img_data).decode("utf-8")
       slide_images.append(f"data:image/png;base64,{b64}")
 
   return slide_images
@@ -225,20 +218,21 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 
 if st.button("🚀 Launch AI-Enabled Presentation Player", type="primary"):
   if not uploaded_file:
-    st.error("Please upload a presentation PDF file.")
+    st.error("Please upload a slides .zip file.")
   else:
-    with st.spinner("Processing presentation slides..."):
+    with st.spinner("Extracting presentation slides..."):
       try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-          tmp.write(uploaded_file.getvalue())
-          temp_pdf_path = tmp.name
-
-        slides_b64 = convert_pdf_to_images_pypdf(temp_pdf_path)
-        html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
-
-        st.components.v1.html(html_content, height=750, scrolling=False)
-        st.success(
-            f"✅ Successfully loaded {len(slides_b64)} slides into the player!"
-        )
+        slides_b64 = extract_slides_from_zip(uploaded_file.getvalue())
+        if not slides_b64:
+          st.error(
+              "No valid PNG or JPG images found inside the zip archive. Please"
+              " check your zip contents."
+          )
+        else:
+          html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
+          st.components.v1.html(html_content, height=750, scrolling=False)
+          st.success(
+              f"✅ Successfully loaded {len(slides_b64)} slides into the player!"
+          )
       except Exception as e:
-        st.error(f"Error processing presentation: {e}")
+        st.error(f"Error processing zip file: {e}")
