@@ -15,13 +15,13 @@ GEMINI_API_KEYS = f"{key1},{key2},{key3}"
 # ==========================================
 
 st.set_page_config(
-    page_title="AI-Enabled Presentation Player", page_icon="✨", layout="centered"
+    page_title="AI-Enabled Presentation Player", page_icon="✨", layout="wide"
 )
 
 st.title("✨ AI-Enabled Presentation Player")
 st.markdown(
-    "Upload your slides **.zip file** to launch a fully immersive AI player in a"
-    " dedicated screen."
+    "Upload your slides **.zip file** to launch the interactive player with"
+    " **live voice-controlled AI slide generation**."
 )
 
 uploaded_file = st.file_uploader(
@@ -65,12 +65,12 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>AI-Enabled Presentation Player</title>
+  <title>AI-Enabled Presentation</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
     body { background: #000; color: #f8fafc; overflow: hidden; height: 100vh; display: flex; flex-direction: column; outline: none; }
 
-    #deck { flex: 1; position: relative; width: 100%; height: 100vh; }
+    #deck { flex: 1; position: relative; width: 100%; height: 100%; }
     .slide {
       position: absolute; inset: 0;
       display: none; flex-direction: column; justify-content: center; align-items: center;
@@ -86,37 +86,47 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
     .ai-generated-slide li { margin-bottom: 1rem; padding-left: 1.8rem; position: relative; }
     .ai-generated-slide li::before { content: "▹"; position: absolute; left: 0; color: #38bdf8; font-weight: bold; }
 
+    #focus-overlay {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.6);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 200; cursor: pointer; transition: opacity 0.3s ease;
+    }
+    #focus-overlay.hidden { opacity: 0; pointer-events: none; }
+    .focus-box { background: #0f172a; border: 2px solid #38bdf8; padding: 20px 30px; border-radius: 12px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+    .focus-box h2 { color: #38bdf8; margin-bottom: 8px; font-size: 1.5rem; }
+    .focus-box p { color: #94a3b8; font-size: 0.95rem; }
+
     #nav-controls {
-      position: fixed; bottom: 20px; left: 20px;
-      display: flex; gap: 10px; z-index: 60;
+      position: fixed; bottom: 14px; left: 20px;
+      display: flex; gap: 8px; z-index: 60;
     }
     .nav-btn {
       background: rgba(30, 41, 59, 0.9); color: #f8fafc; border: 1px solid #475569;
-      padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600;
+      padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
     }
     .nav-btn:hover { background: rgba(51, 65, 85, 1); border-color: #38bdf8; }
 
     #hud {
-      position: fixed; bottom: 20px; right: 25px;
-      background: rgba(15, 23, 42, 0.9); padding: 8px 14px; border-radius: 8px;
-      font-size: 0.9rem; color: #94a3b8; z-index: 50; border: 1px solid #334155;
+      position: fixed; bottom: 14px; right: 22px;
+      background: rgba(15, 23, 42, 0.85); padding: 6px 12px; border-radius: 6px;
+      font-size: 0.85rem; color: #94a3b8; z-index: 50; border: 1px solid #334155;
     }
 
     #ai-bar {
-      position: fixed; bottom: 35px; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
       width: 720px; max-width: 90vw;
-      background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(12px);
+      background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(12px);
       border: 1px solid #38bdf8; border-radius: 12px;
       padding: 14px 18px; display: none; align-items: center; gap: 12px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.9); z-index: 100;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8); z-index: 100;
     }
     #ai-bar.open { display: flex; }
     #ai-input { flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 1.1rem; }
     
     .mic-btn {
       background: #ef4444; color: white; border: none; border-radius: 50%;
-      width: 38px; height: 38px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-      font-size: 1.1rem; transition: transform 0.2s;
+      width: 36px; height: 36px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; transition: transform 0.2s;
     }
     .mic-btn.listening { background: #22c55e; animation: pulse 1.5s infinite; }
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
@@ -125,6 +135,13 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
   </style>
 </head>
 <body tabindex="0" id="player-body">
+  <div id="focus-overlay" onclick="activatePlayer()">
+    <div class="focus-box">
+      <h2>✨ Click Here to Start Presentation</h2>
+      <p>Click once to enable keyboard controls, navigation, and voice AI.</p>
+    </div>
+  </div>
+
   <div id="deck">__SLIDES_CONTENT__</div>
 
   <div id="nav-controls">
@@ -151,8 +168,12 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
     const aiStatus = document.getElementById("ai-status");
     const micBtn = document.getElementById("mic-btn");
     const playerBody = document.getElementById("player-body");
+    const focusOverlay = document.getElementById("focus-overlay");
 
-    window.onload = () => { playerBody.focus(); };
+    function activatePlayer() {
+      focusOverlay.classList.add("hidden");
+      playerBody.focus();
+    }
 
     function updateSlides() {
       const slides = document.querySelectorAll(".slide");
@@ -319,7 +340,7 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
   )
 
 
-if st.button("🚀 Launch AI Presentation in New Window", type="primary"):
+if st.button("🚀 Launch AI Presentation Player", type="primary"):
   if not uploaded_file:
     st.error("Please upload a slides .zip file.")
   else:
@@ -330,24 +351,9 @@ if st.button("🚀 Launch AI Presentation in New Window", type="primary"):
           st.error("No valid image files found inside the zip archive.")
         else:
           html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
-
-          # Encode as data URI to open cleanly in a standalone browser tab
-          b64_html = base64.b64encode(html_content.encode("utf-8")).decode(
-              "utf-8"
-          )
-          data_url = f"data:text/html;base64,{b64_html}"
-
-          st.markdown(
-              f'<a href="{data_url}" target="_blank" style="display:inline-block;'
-              " background-color:#22c55e; color:white; padding:12px 24px;"
-              " border-radius:8px; text-decoration:none; font-weight:bold;"
-              ' font-size:16px; margin-top:10px;">👉 Click Here to Open Full'
-              " Screen Player Window</a>",
-              unsafe_allow_html=True,
-          )
+          st.components.v1.html(html_content, height=750, scrolling=False)
           st.success(
-              "✅ Presentation ready! Click the green button above to open the"
-              " interactive player."
+              "✅ Successfully loaded presentation into the interactive player!"
           )
       except Exception as e:
         st.error(f"Error processing presentation: {e}")
