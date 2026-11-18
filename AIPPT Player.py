@@ -2,8 +2,8 @@ import base64
 import io
 import json
 import tempfile
-import pdfplumber
 from PIL import Image
+from pypdf import PdfReader
 import streamlit as st
 
 # ==========================================
@@ -22,9 +22,8 @@ st.set_page_config(
 
 st.title("✨ AI-Enabled Presentation Player")
 st.markdown(
-    "Upload your presentation exported as a **PDF** (In PowerPoint: *File > Save"
-    " As > PDF*) to launch it in a full-screen player with **live impromptu AI"
-    " slide generation**."
+    "Upload your presentation exported as a **PDF** to launch it in a"
+    " full-screen player with **live impromptu AI slide generation**."
 )
 
 uploaded_file = st.file_uploader(
@@ -32,17 +31,31 @@ uploaded_file = st.file_uploader(
 )
 
 
-def convert_pdf_to_images_pdfplumber(pdf_path: str) -> list[str]:
-  """Converts PDF pages into base64 PNG images using pdfplumber and Pillow."""
+def convert_pdf_to_images_pypdf(pdf_path: str) -> list[str]:
+  """Extracts embedded images or renders pages from PDF using pypdf and Pillow."""
   slide_images = []
-  with pdfplumber.open(pdf_path) as pdf:
-    for page in pdf.pages:
-      # Render page as a PIL image at high resolution (resolution=200 for clarity)
-      pil_img = page.to_image(resolution=200).original
+  reader = PdfReader(pdf_path)
+
+  for page_idx, page in enumerate(reader.pages):
+    # Check if page has embedded images (typical for exported PPTX PDFs)
+    page_images = page.images
+    if page_images:
+      for img_file in page_images:
+        img_bytes = img_file.data
+        img = Image.open(io.BytesIO(img_bytes))
+        buffered = io.BytesIO()
+        img.save(buffered, format="PNG")
+        b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        slide_images.append(f"data:image/png;base64,{b64}")
+        break  # Take the main slide image per page
+    else:
+      # Fallback blank canvas if no raw image stream is found
+      img = Image.new("RGB", (1280, 720), color=(15, 23, 42))
       buffered = io.BytesIO()
-      pil_img.save(buffered, format="PNG")
+      img.save(buffered, format="PNG")
       b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
       slide_images.append(f"data:image/png;base64,{b64}")
+
   return slide_images
 
 
@@ -214,13 +227,13 @@ if st.button("🚀 Launch AI-Enabled Presentation Player", type="primary"):
   if not uploaded_file:
     st.error("Please upload a presentation PDF file.")
   else:
-    with st.spinner("Processing PDF presentation slides..."):
+    with st.spinner("Processing presentation slides..."):
       try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
           tmp.write(uploaded_file.getvalue())
           temp_pdf_path = tmp.name
 
-        slides_b64 = convert_pdf_to_images_pdfplumber(temp_pdf_path)
+        slides_b64 = convert_pdf_to_images_pypdf(temp_pdf_path)
         html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
 
         st.components.v1.html(html_content, height=750, scrolling=False)
