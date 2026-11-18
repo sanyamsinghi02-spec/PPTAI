@@ -231,14 +231,12 @@ if not st.session_state.loaded or not st.session_state.slides:
     st.stop()
 
 # =========================================================
-# STREAMLIT BIDIRECTIONAL COMPONENT
+# STREAMLIT COMPONENT DATA & RENDERING
 # =========================================================
 
-# Create a temporary directory or pass code directly via components
-# We'll use components.html with bidirectional message passing
 component_slides = [{"name": s["name"], "src": s["src"]} for s in st.session_state.slides]
+response_data = json.dumps(st.session_state.ai_response) if st.session_state.ai_response else "null"
 
-# Define an inline HTML component template with bidirectional communication
 html_code = f"""
 <!DOCTYPE html>
 <html lang="en">
@@ -459,7 +457,6 @@ function sendPrompt() {{
     notice.textContent = "AI is thinking...";
     status.textContent = "AI is thinking...";
 
-    // Send payload to Python via Streamlit component channel
     setComponentValue({{
         request_id: Date.now().toString(),
         prompt: prompt,
@@ -472,33 +469,22 @@ promptBox.addEventListener("keydown", (e) => {{
     if (e.key === "Enter" && !e.shiftKey) {{ e.preventDefault(); sendPrompt(); }}
 }});
 
-// Listen for incoming messages from Streamlit backend python response
-window.addEventListener("message", (event) => {{
-    const data = event.data;
-    if (!data || data.type !== "streamlit:render") return;
-    
-    const args = data.args || {{}};
-    const response = args.response;
-    const responseId = Number(args.response_id || 0);
-    
-    if (response && responseId !== window.lastResponseId) {{
-        window.lastResponseId = responseId;
-        notice.textContent = "";
-        status.textContent = "Ready";
-
-        if (response.type === "slide") {{
-            generatedSlides.push(response);
-            addMessage("ai", response.spoken_text || "I've created a new slide.");
-            currentIndex = allSlideCount() - 1;
-            renderSlide();
-            speak(response.spoken_text || response.title);
-        }} else {{
-            const answer = response.display_text || response.spoken_text || "Done.";
-            addMessage("ai", answer);
-            speak(response.spoken_text || answer);
-        }}
+// Handle initial/passed AI response if any
+const initialResponse = {response_data};
+if (initialResponse) {{
+    notice.textContent = "";
+    status.textContent = "Ready";
+    if (initialResponse.type === "slide") {{
+        generatedSlides.push(initialResponse);
+        addMessage("ai", initialResponse.spoken_text || "I've created a new slide.");
+        currentIndex = allSlideCount() - 1;
+        speak(initialResponse.spoken_text || initialResponse.title);
+    }} else {{
+        const answer = initialResponse.display_text || initialResponse.spoken_text || "Done.";
+        addMessage("ai", answer);
+        speak(initialResponse.spoken_text || answer);
     }}
-}});
+}}
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const micButton = document.getElementById("micBtn");
@@ -514,7 +500,6 @@ if (SpeechRecognition) {{
     micButton.textContent = "Voice N/A";
 }}
 
-// Notify Streamlit that component is ready
 sendToStreamlit("streamlit:componentReady", {{ apiVersion: 1 }});
 renderSlide();
 </script>
@@ -522,8 +507,7 @@ renderSlide();
 </html>
 """
 
-# Render component and capture returned values from frontend
-component_value = components.v1.html(
+component_value = components.html(
     html_code,
     height=750,
     scrolling=False,
