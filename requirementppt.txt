@@ -1,6 +1,2 @@
 google-generativeai
 streamlit
-pypdfium2
-pytesseract
-pandas
-openpyxl
