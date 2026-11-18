@@ -323,7 +323,7 @@ textarea:focus {{ border-color: #818cf8; }}
             </div>
             <div class="messages" id="messages">
                 <div class="message ai-message">
-                    <div class="message-label">AI TUTOR</div> Hello! Ask me to explain a slide, give examples, or create a new slide.
+                    <div class="message-label">AI Teammate</div> Hello! Ask me to explain a slide, give examples, or create a new slide.
                 </div>
             </div>
             <div class="composer">
