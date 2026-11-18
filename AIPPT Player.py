@@ -25,6 +25,10 @@ st.set_page_config(
 
 APP_DIR = Path(__file__).parent
 COMPONENT_DIR = APP_DIR / "player_component"
+st.write("Python:", __import__("sys").version)
+st.write("Streamlit:", st.__version__)
+st.write("Component folder:", str(COMPONENT_DIR.resolve()))
+st.write("HTML exists:", (COMPONENT_DIR / "index.html").is_file())
 
 MAX_ZIP_BYTES = 50 * 1024 * 1024
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
