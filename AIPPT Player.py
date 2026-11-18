@@ -28,8 +28,6 @@ MAX_TOTAL_IMAGE_BYTES = 40 * 1024 * 1024
 MAX_SLIDES = 100
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
-
-# Safe working models
 GEMINI_MODEL_NAME = st.secrets.get("GEMINI_MODEL", "gemini-1.5-flash")
 
 # =========================================================
@@ -51,7 +49,7 @@ for key, value in DEFAULTS.items():
         st.session_state[key] = value
 
 # =========================================================
-# DUAL API HANDLER (GROQ + GEMINI MULTI-KEY POOL + TIMEOUTS)
+# DUAL API HANDLER (GROQ + GEMINI POOL + TIMEOUT PROTECTION)
 # =========================================================
 
 def get_gemini_api_keys():
@@ -78,7 +76,7 @@ def generate_ai_response(user_prompt, slide_index, slide_count, slide_bytes, mim
         conversation_text += f"\n{role}: {item['text']}\n"
 
     prompt = f"""
-You are a friendly, intelligent, conversational AI presentation tutor.
+You are a friendly, intelligent, conversational AI presentation tutor and voice assistant.
 The user is viewing slide {slide_index + 1} of {slide_count}.
 
 CONVERSATION SO FAR:
@@ -212,10 +210,10 @@ def extract_slides(zip_bytes):
 # =========================================================
 
 st.title("✨ AI Presentation Player")
-st.caption("Present, navigate, and have a voice conversation with your AI tutor.")
+st.caption("Present, navigate, and have voice conversations with your AI teammate.")
 
 with st.sidebar:
-    st.header("Presentation")
+    st.header("Presentation Setup")
     uploaded_file = st.file_uploader(
         "Upload slide ZIP",
         type=["zip"],
@@ -227,7 +225,7 @@ with st.sidebar:
             st.error("Please upload a ZIP file.")
         else:
             try:
-                with st.spinner("Loading your slides..."):
+                with st.spinner("Loading slides..."):
                     st.session_state.slides = extract_slides(uploaded_file.getvalue())
                     st.session_state.loaded = True
                     st.session_state.ai_response = None
@@ -240,7 +238,7 @@ with st.sidebar:
                 st.error(str(exc))
 
     st.divider()
-    st.caption(f"Active Model: {GEMINI_MODEL_NAME} + Groq Fallback")
+    st.caption(f"Active Engines: Groq + {GEMINI_MODEL_NAME}")
     if st.button("Clear conversation", use_container_width=True):
         st.session_state.conversation = []
         st.session_state.ai_response = None
@@ -254,7 +252,7 @@ if not st.session_state.loaded or not st.session_state.slides:
     st.stop()
 
 # =========================================================
-# STREAMLIT COMPONENT DATA & RENDERING
+# STREAMLIT COMPONENT DATA & FULL UI RENDERING
 # =========================================================
 
 component_slides = [{"name": s["name"], "src": s["src"]} for s in st.session_state.slides]
@@ -300,9 +298,9 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .assistant { display: flex; flex-direction: column; min-width: 0; background: #111c31; border-left: 1px solid #263449; min-height: 590px; }
 .assistant-header { padding: 16px; border-bottom: 1px solid #263449; }
 .assistant-header h3 { margin: 0 0 5px; }
-.assistant-header p { margin: 0; color: #94a3b8; font-size: 15px; }
+.assistant-header p { margin: 0; color: #94a3b8; font-size: 12px; }
 .messages { padding: 12px; flex: 1; overflow-y: auto; max-height: 440px; min-height: 220px; }
-.message { padding: 11px; border-radius: 10px; margin-bottom: 10px; font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message { padding: 11px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .user-message { background: #263a60; margin-left: 18px; }
 .ai-message { background: #1e293b; margin-right: 18px; }
 .message-label { color: #a5b4fc; font-size: 10px; font-weight: bold; margin-bottom: 5px; }
@@ -344,7 +342,8 @@ textarea:focus { border-color: #818cf8; }
             </div>
             <div class="messages" id="messages">
                 <div class="message ai-message">
-                    <div class="message-label">AI Teammate</div> Hello! Ask me to explain a slide, give examples, or create a new slide.
+                    <div class="message-label">AI Teammate</div>
+                    Hello! Ask me to explain a slide, give examples, or create a new slide.
                 </div>
             </div>
             <div class="composer">
@@ -493,7 +492,7 @@ promptBox.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
 });
 
-// Handle Response Injected from Python Backend
+// Response Injection with Safe Session Handling
 const initialResponse = __RESPONSE_DATA__;
 const responseId = __RESPONSE_ID__;
 const lastProcessedId = sessionStorage.getItem("last_processed_response_id") || "0";
@@ -514,13 +513,15 @@ if (initialResponse && responseId.toString() !== lastProcessedId) {
     }
 }
 
+// Speech Recognition (Microphone Voice Input)
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const micButton = document.getElementById("micBtn");
 if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.lang = "en-IN";
-    recognition.onstart = () => { listening = true; micButton.classList.add("listening"); micButton.textContent = "🔴 Listening..."; };
+    recognition.onstart = () => { listening = true; micButton.classList.add("listening"); micButton.textContent = "🔴 Listening..."; notice.textContent = "Listening..."; };
     recognition.onresult = (e) => { promptBox.value = e.results[0][0].transcript; sendPrompt(); };
+    recognition.onerror = (e) => { notice.textContent = "Mic error: " + e.error; listening = false; micButton.classList.remove("listening"); micButton.textContent = "🎙 Speak"; };
     recognition.onend = () => { listening = false; micButton.classList.remove("listening"); micButton.textContent = "🎙 Speak"; };
     micButton.addEventListener("click", () => { if (listening) recognition.stop(); else recognition.start(); });
 } else {
@@ -541,7 +542,10 @@ component_value = components.html(
     scrolling=False,
 )
 
-# Process backend AI requests when component value updates
+# =========================================================
+# BACKEND COMPONENT LISTENER
+# =========================================================
+
 if isinstance(component_value, dict):
     request_id = component_value.get("request_id")
     user_prompt = str(component_value.get("prompt", "")).strip()
@@ -571,7 +575,7 @@ if isinstance(component_value, dict):
             st.session_state.last_error = str(exc)
             st.session_state.ai_response = {
                 "type": "answer",
-                "spoken_text": "Sorry, the request timed out or failed. Please try again.",
+                "spoken_text": "Sorry, the request timed out or failed. Please check your API quota.",
                 "display_text": f"Error: {exc}"
             }
             st.session_state.ai_response_id += 1
