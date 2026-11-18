@@ -240,7 +240,6 @@ def extract_slides(zip_bytes):
 st.title("✨ AI Presentation Player")
 st.caption("Present, navigate, and have a voice conversation with your AI tutor.")
 
-# Handle asynchronous AJAX/fetch requests coming from the HTML frontend iframe
 query_params = st.query_params
 if "ai_prompt" in query_params:
     user_prompt = query_params["ai_prompt"]
@@ -310,7 +309,7 @@ if not st.session_state.loaded or not st.session_state.slides:
 
 slides_json = json.dumps([{"name": s["name"], "src": s["src"]} for s in st.session_state.slides])
 
-html_code = f"""
+html_code = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -318,53 +317,53 @@ html_code = f"""
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI Presentation Player</title>
 <style>
-* {{ box-sizing: border-box; }}
-html, body {{ margin: 0; padding: 0; width: 100%; min-height: 100%; background: #080d19; color: #f8fafc; font-family: Arial, sans-serif; }}
-body {{ padding: 12px; }}
-#player {{ width: 100%; min-height: 650px; background: #0f172a; border: 1px solid #263449; border-radius: 16px; overflow: hidden; }}
-.topbar {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; background: #111c31; border-bottom: 1px solid #263449; flex-wrap: wrap; }}
-.brand {{ font-size: 17px; font-weight: bold; }}
-.status {{ color: #94a3b8; font-size: 12px; }}
-.layout {{ display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 590px; }}
-.presentation {{ padding: 14px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }}
-.slide-stage {{ width: 100%; aspect-ratio: 16 / 9; min-height: 250px; background: #020617; border: 1px solid #334155; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; }}
-.slide-stage img {{ width: 100%; height: 100%; object-fit: contain; }}
-.generated-slide {{ width: 100%; height: 100%; padding: 6%; background: linear-gradient(135deg, #172554, #312e81); display: flex; flex-direction: column; justify-content: center; }}
-.generated-slide h1 {{ text-align: center; font-size: clamp(22px, 3vw, 42px); margin: 0 0 24px; }}
-.generated-slide li {{ font-size: clamp(14px, 1.6vw, 23px); margin: 12px 0; line-height: 1.4; }}
-.controls {{ display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }}
-button {{ cursor: pointer; border: 0; border-radius: 8px; padding: 10px 15px; background: #253653; color: white; font-size: 14px; font-weight: 600; }}
-button:hover {{ background: #38547d; }}
-button:disabled {{ opacity: 0.35; cursor: not-allowed; }}
-.primary {{ background: #4f46e5; }}
-.primary:hover {{ background: #6366f1; }}
-.mic {{ background: #be123c; }}
-.mic.listening {{ background: #dc2626; animation: pulse 1s infinite; }}
-@keyframes pulse {{ 50% {{ opacity: 0.55; }} }}
-.counter {{ color: #cbd5e1; font-size: 13px; min-width: 90px; text-align: center; }}
-.progress {{ width: 100%; height: 5px; background: #273449; border-radius: 20px; overflow: hidden; }}
-.progress-inner {{ height: 100%; width: 0%; background: #818cf8; transition: width 0.2s; }}
-.keyboard-help {{ color: #94a3b8; font-size: 11px; text-align: center; }}
-.assistant {{ display: flex; flex-direction: column; min-width: 0; background: #111c31; border-left: 1px solid #263449; min-height: 590px; }}
-.assistant-header {{ padding: 16px; border-bottom: 1px solid #263449; }}
-.assistant-header h3 {{ margin: 0 0 5px; }}
-.assistant-header p {{ margin: 0; color: #94a3b8; font-size: 12px; }}
-.messages {{ padding: 12px; flex: 1; overflow-y: auto; max-height: 440px; min-height: 220px; }}
-.message {{ padding: 11px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }}
-.user-message {{ background: #263a60; margin-left: 18px; }}
-.ai-message {{ background: #1e293b; margin-right: 18px; }}
-.message-label {{ color: #a5b4fc; font-size: 10px; font-weight: bold; margin-bottom: 5px; }}
-.composer {{ padding: 12px; border-top: 1px solid #263449; }}
-textarea {{ width: 100%; min-height: 75px; resize: vertical; padding: 10px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 13px; outline: none; }}
-textarea:focus {{ border-color: #818cf8; }}
-.composer-buttons {{ display: flex; gap: 8px; margin-top: 8px; }}
-.composer-buttons button {{ flex: 1; }}
-.voice-note {{ color: #94a3b8; font-size: 10px; margin-top: 8px; }}
-#notice {{ color: #fbbf24; font-size: 12px; min-height: 16px; margin-top: 5px; }}
-@media (max-width: 850px) {{
-    .layout {{ grid-template-columns: 1fr; }}
-    .assistant {{ border-left: 0; border-top: 1px solid #263449; min-height: 430px; }}
-}}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; width: 100%; min-height: 100%; background: #080d19; color: #f8fafc; font-family: Arial, sans-serif; }
+body { padding: 12px; }
+#player { width: 100%; min-height: 650px; background: #0f172a; border: 1px solid #263449; border-radius: 16px; overflow: hidden; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; background: #111c31; border-bottom: 1px solid #263449; flex-wrap: wrap; }
+.brand { font-size: 17px; font-weight: bold; }
+.status { color: #94a3b8; font-size: 12px; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 590px; }
+.presentation { padding: 14px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.slide-stage { width: 100%; aspect-ratio: 16 / 9; min-height: 250px; background: #020617; border: 1px solid #334155; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.slide-stage img { width: 100%; height: 100%; object-fit: contain; }
+.generated-slide { width: 100%; height: 100%; padding: 6%; background: linear-gradient(135deg, #172554, #312e81); display: flex; flex-direction: column; justify-content: center; }
+.generated-slide h1 { text-align: center; font-size: clamp(22px, 3vw, 42px); margin: 0 0 24px; }
+.generated-slide li { font-size: clamp(14px, 1.6vw, 23px); margin: 12px 0; line-height: 1.4; }
+.controls { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+button { cursor: pointer; border: 0; border-radius: 8px; padding: 10px 15px; background: #253653; color: white; font-size: 14px; font-weight: 600; }
+button:hover { background: #38547d; }
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+.primary { background: #4f46e5; }
+.primary:hover { background: #6366f1; }
+.mic { background: #be123c; }
+.mic.listening { background: #dc2626; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.55; } }
+.counter { color: #cbd5e1; font-size: 13px; min-width: 90px; text-align: center; }
+.progress { width: 100%; height: 5px; background: #273449; border-radius: 20px; overflow: hidden; }
+.progress-inner { height: 100%; width: 0%; background: #818cf8; transition: width 0.2s; }
+.keyboard-help { color: #94a3b8; font-size: 11px; text-align: center; }
+.assistant { display: flex; flex-direction: column; min-width: 0; background: #111c31; border-left: 1px solid #263449; min-height: 590px; }
+.assistant-header { padding: 16px; border-bottom: 1px solid #263449; }
+.assistant-header h3 { margin: 0 0 5px; }
+.assistant-header p { margin: 0; color: #94a3b8; font-size: 12px; }
+.messages { padding: 12px; flex: 1; overflow-y: auto; max-height: 440px; min-height: 220px; }
+.message { padding: 11px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.user-message { background: #263a60; margin-left: 18px; }
+.ai-message { background: #1e293b; margin-right: 18px; }
+.message-label { color: #a5b4fc; font-size: 10px; font-weight: bold; margin-bottom: 5px; }
+.composer { padding: 12px; border-top: 1px solid #263449; }
+textarea { width: 100%; min-height: 75px; resize: vertical; padding: 10px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 13px; outline: none; }
+textarea:focus { border-color: #818cf8; }
+.composer-buttons { display: flex; gap: 8px; margin-top: 8px; }
+.composer-buttons button { flex: 1; }
+.voice-note { color: #94a3b8; font-size: 10px; margin-top: 8px; }
+#notice { color: #fbbf24; font-size: 12px; min-height: 16px; margin-top: 5px; }
+@media (max-width: 850px) {
+    .layout { grid-template-columns: 1fr; }
+    .assistant { border-left: 0; border-top: 1px solid #263449; min-height: 430px; }
+}
 </style>
 </head>
 <body>
@@ -410,7 +409,7 @@ textarea:focus {{ border-color: #818cf8; }}
 </div>
 
 <script>
-const slides = {slides_json};
+const slides = __SLIDES_JSON__;
 let currentIndex = 0;
 let generatedSlides = [];
 let recognition = null;
@@ -424,21 +423,21 @@ const promptBox = document.getElementById("prompt");
 const notice = document.getElementById("notice");
 const player = document.getElementById("player");
 
-function allSlideCount() {{ return slides.length + generatedSlides.length; }}
+function allSlideCount() { return slides.length + generatedSlides.length; }
 
-function renderSlide() {{
+function renderSlide() {
     const total = allSlideCount();
     if (!total) return;
     currentIndex = Math.max(0, Math.min(currentIndex, total - 1));
     stage.innerHTML = "";
 
-    if (currentIndex < slides.length) {{
+    if (currentIndex < slides.length) {
         const slide = slides[currentIndex];
         const img = document.createElement("img");
         img.src = slide.src;
         img.alt = slide.name || "Slide";
         stage.appendChild(img);
-    }} else {{
+    } else {
         const generated = generatedSlides[currentIndex - slides.length];
         const wrapper = document.createElement("div");
         wrapper.className = "generated-slide";
@@ -446,42 +445,42 @@ function renderSlide() {{
         heading.textContent = generated.title || "AI Generated Slide";
         wrapper.appendChild(heading);
         const list = document.createElement("ul");
-        (generated.bullets || []).forEach(b => {{
+        (generated.bullets || []).forEach(b => {
             const item = document.createElement("li");
             item.textContent = b;
             list.appendChild(item);
-        }});
+        });
         wrapper.appendChild(list);
         stage.appendChild(wrapper);
-    }}
+    }
 
     counter.textContent = (currentIndex + 1) + " / " + total;
     document.getElementById("prevBtn").disabled = (currentIndex === 0);
     document.getElementById("nextBtn").disabled = (currentIndex >= total - 1);
     document.getElementById("progressInner").style.width = (((currentIndex + 1) / total) * 100) + "%";
     status.textContent = "Viewing slide " + (currentIndex + 1);
-}}
+}
 
-function nextSlide() {{ if (currentIndex < allSlideCount() - 1) {{ currentIndex++; renderSlide(); }} }}
-function previousSlide() {{ if (currentIndex > 0) {{ currentIndex--; renderSlide(); }} }}
+function nextSlide() { if (currentIndex < allSlideCount() - 1) { currentIndex++; renderSlide(); } }
+function previousSlide() { if (currentIndex > 0) { currentIndex--; renderSlide(); } }
 
 document.getElementById("nextBtn").addEventListener("click", nextSlide);
 document.getElementById("prevBtn").addEventListener("click", previousSlide);
 
-document.addEventListener("keydown", (e) => {{
+document.addEventListener("keydown", (e) => {
     if (["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
-    if (e.key === "ArrowRight" || e.key === " ") {{ e.preventDefault(); nextSlide(); }}
-    if (e.key === "ArrowLeft") {{ e.preventDefault(); previousSlide(); }}
-}});
+    if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); nextSlide(); }
+    if (e.key === "ArrowLeft") { e.preventDefault(); previousSlide(); }
+});
 
-document.getElementById("fullscreenBtn").addEventListener("click", async () => {{
-    try {{
+document.getElementById("fullscreenBtn").addEventListener("click", async () => {
+    try {
         if (!document.fullscreenElement) await player.requestFullscreen();
         else await document.exitFullscreen();
-    }} catch (err) {{}}
-}});
+    } catch (err) {}
+});
 
-function addMessage(role, text) {{
+function addMessage(role, text) {
     const message = document.createElement("div");
     message.className = "message " + (role === "user" ? "user-message" : "ai-message");
     const label = document.createElement("div");
@@ -493,18 +492,18 @@ function addMessage(role, text) {{
     message.appendChild(content);
     messages.appendChild(message);
     messages.scrollTop = messages.scrollHeight;
-}}
+}
 
-function speak(text) {{
-    if ('speechSynthesis' in window) {{
+function speak(text) {
+    if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "en-IN";
         window.speechSynthesis.speak(utterance);
-    }}
-}}
+    }
+}
 
-async function sendPrompt(text) {{
+async function sendPrompt(text) {
     const prompt = String(text || "").trim();
     if (!prompt) return;
 
@@ -513,53 +512,53 @@ async function sendPrompt(text) {{
     notice.textContent = "AI is thinking...";
     status.textContent = "AI is thinking...";
 
-    try {{
-        const res = await fetch(`?ai_prompt=${{encodeURIComponent(prompt)}}&slide_index=${{Math.min(currentIndex, slides.length - 1)}}`);
+    try {
+        const res = await fetch(`?ai_prompt=${encodeURIComponent(prompt)}&slide_index=${Math.min(currentIndex, slides.length - 1)}`);
         const data = await res.json();
         
         notice.textContent = "";
         status.textContent = "Ready";
 
-        if (data.type === "slide") {{
+        if (data.type === "slide") {
             generatedSlides.push(data);
             addMessage("ai", data.spoken_text || "I've created a new slide.");
             currentIndex = allSlideCount() - 1;
             renderSlide();
             speak(data.spoken_text || data.title);
-        }} else {{
+        } else {
             const answer = data.display_text || data.spoken_text || "Done.";
             addMessage("ai", answer);
             speak(data.spoken_text || answer);
-        }}
-    } catch (err) {{
+        }
+    } catch (err) {
         notice.textContent = "Request failed.";
         status.textContent = "Ready";
-    }}
-}}
+    }
+}
 
 document.getElementById("sendBtn").addEventListener("click", () => sendPrompt(promptBox.value));
-promptBox.addEventListener("keydown", (e) => {{
-    if (e.key === "Enter" && !e.shiftKey) {{ e.preventDefault(); sendPrompt(promptBox.value); }}
-}});
+promptBox.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(promptBox.value); }
+});
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const micButton = document.getElementById("micBtn");
-if (SpeechRecognition) {{
+if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.lang = "en-IN";
-    recognition.onstart = () => {{ listening = true; micButton.classList.add("listening"); micButton.textContent = "🔴 Listening..."; }};
-    recognition.onresult = (e) => {{ promptBox.value = e.results[0][0].transcript; sendPrompt(promptBox.value); }};
-    recognition.onend = () => {{ listening = false; micButton.classList.remove("listening"); micButton.textContent = "🎙 Speak"; }};
-    micButton.addEventListener("click", () => {{ if (listening) recognition.stop(); else recognition.start(); }});
-}} else {{
+    recognition.onstart = () => { listening = true; micButton.classList.add("listening"); micButton.textContent = "🔴 Listening..."; };
+    recognition.onresult = (e) => { promptBox.value = e.results[0][0].transcript; sendPrompt(promptBox.value); };
+    recognition.onend = () => { listening = false; micButton.classList.remove("listening"); micButton.textContent = "🎙 Speak"; };
+    micButton.addEventListener("click", () => { if (listening) recognition.stop(); else recognition.start(); });
+} else {
     micButton.disabled = true;
     micButton.textContent = "Voice N/A";
-}}
+}
 
 renderSlide();
 </script>
 </body>
 </html>
-"""
+""".replace("__SLIDES_JSON__", slides_json)
 
 st.components.v1.html(html_code, height=750, scrolling=False)
