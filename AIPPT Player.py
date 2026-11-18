@@ -52,7 +52,9 @@ for key, value in DEFAULTS.items():
 # GEMINI API HANDLER (WITH TIMEOUT PROTECTION)
 # =========================================================
 
-def get_api_keys():
+from openai import OpenAI
+
+def get_gemini_api_keys():
     keys = [
         st.secrets.get("GEMINI_API_KEY", ""),
         st.secrets.get("GEMINI_API_KEY_2", ""),
@@ -62,18 +64,15 @@ def get_api_keys():
 
 def parse_json_response(response_text):
     if not response_text:
-        raise ValueError("Gemini returned an empty response.")
+        raise ValueError("AI returned an empty response.")
     cleaned = response_text.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned)
     return json.loads(cleaned)
 
-def generate_ai_response(user_prompt, slide_index, slide_count, slide_bytes, mime_type):
-    api_keys = get_api_keys()
-    if not api_keys:
-        raise ValueError("No Gemini API key found under Streamlit Secrets.")
-
-    history = st.session_state.conversation[-12:]
+def generate_ai_response(user_prompt, slide_index, slide_count, slide_name):
+    # Prepare conversation history
+    history = st.session_state.get("conversation", [])[-8:]
     conversation_text = ""
     for item in history:
         role = "User" if item["role"] == "user" else "Assistant"
@@ -81,7 +80,7 @@ def generate_ai_response(user_prompt, slide_index, slide_count, slide_bytes, mim
 
     prompt = f"""
 You are a friendly, intelligent, conversational AI presentation tutor.
-The user is viewing slide {slide_index + 1} of {slide_count}.
+The user is viewing slide {slide_index + 1} of {slide_count} (Filename: {slide_name}).
 
 CONVERSATION SO FAR:
 {conversation_text}
@@ -89,14 +88,14 @@ CONVERSATION SO FAR:
 LATEST USER MESSAGE:
 {user_prompt}
 
-If the user asks a question or wants a conversational response, return this JSON:
+If the user asks a question or wants a conversational response, return ONLY a JSON object in this exact format:
 {{
   "type": "answer",
   "spoken_text": "A natural, friendly answer suitable for speaking aloud.",
   "display_text": "A readable answer for the screen."
 }}
 
-If the user explicitly asks to create, add, or generate a slide, return:
+If the user explicitly asks to create, add, or generate a slide, return ONLY a JSON object in this exact format:
 {{
   "type": "slide",
   "title": "A clear slide title",
@@ -107,39 +106,56 @@ If the user explicitly asks to create, add, or generate a slide, return:
   ],
   "spoken_text": "Briefly introduce the new slide."
 }}
-
-Return only valid JSON.
 """
 
     last_error = None
-    for api_key in api_keys:
+
+    # 1. TRY GROQ FIRST (Lightning fast speed, no hanging)
+    groq_key = st.secrets.get("GROQ_API_KEY", "")
+    if groq_key:
         try:
-            # Enforce a 25-second timeout to prevent indefinite hanging on free-tier bottlenecks
-            client = genai.Client(
-                api_key=api_key,
-                http_options=types.HttpOptions(timeout=25_000)
+            client = OpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=groq_key
             )
-            contents = [
-                types.Part.from_text(text=prompt),
-                types.Part.from_bytes(data=slide_bytes, mime_type=mime_type),
-            ]
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.6,
-                    max_output_tokens=1500,
-                ),
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.6,
+                max_tokens=1000,
             )
-            data = parse_json_response(response.text)
+            data = json.loads(response.choices[0].message.content)
             if data.get("type") in ["slide", "answer"]:
                 return data
-            raise ValueError("Unsupported response type from Gemini.")
         except Exception as exc:
             last_error = exc
 
-    raise RuntimeError(f"Gemini request failed or timed out: {last_error}")
+    # 2. FALLBACK TO GEMINI KEYS POOL IF GROQ FAILS OR KEY IS MISSING
+    gemini_keys = get_gemini_api_keys()
+    if gemini_keys:
+        for api_key in gemini_keys:
+            try:
+                client = genai.Client(
+                    api_key=api_key,
+                    http_options=types.HttpOptions(timeout=20_000)
+                )
+                response = client.models.generate_content(
+                    model=MODEL_NAME,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.6,
+                        max_output_tokens=1000,
+                    ),
+                )
+                data = parse_json_response(response.text)
+                if data.get("type") in ["slide", "answer"]:
+                    return data
+            except Exception as exc:
+                last_error = exc
+
+    raise RuntimeError(f"All AI API requests failed or timed out. Last error: {last_error}")
 
 # =========================================================
 # ZIP PROCESSING
