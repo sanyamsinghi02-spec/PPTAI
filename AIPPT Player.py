@@ -1,8 +1,5 @@
 import base64
-import io
 import json
-import tempfile
-import pypdfium2 as pdfium
 import streamlit as st
 
 # ==========================================
@@ -12,7 +9,6 @@ key1 = st.secrets.get("GEMINI_API_KEY", "")
 key2 = st.secrets.get("GEMINI_API_KEY_2", "")
 key3 = st.secrets.get("GEMINI_API_KEY_3", "")
 
-# Combines your separate secret keys into a comma-separated string for JavaScript rotation
 GEMINI_API_KEYS = f"{key1},{key2},{key3}"
 # ==========================================
 
@@ -22,24 +18,13 @@ st.set_page_config(
 
 st.title("✨ AI-Enabled Presentation Player")
 st.markdown(
-    "Upload your presentation exported as a **PDF** to launch it in a"
-    " full-screen player with **live impromptu AI slide generation**."
+    "Upload your presentation slide images (`.png` or `.jpg`) to launch them"
+    " in a full-screen player with **live impromptu AI slide generation**."
 )
 
-uploaded_file = st.file_uploader("Upload presentation (.pdf)", type=["pdf"])
-
-
-def convert_pdf_to_images(pdf_path: str) -> list[str]:
-  """Converts PDF pages into base64 PNG images using pypdfium2."""
-  pdf = pdfium.PdfDocument(pdf_path)
-  slide_images = []
-  for i, page in enumerate(pdf):
-    image = page.render(scale=2).to_pil()
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG")
-    b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    slide_images.append(f"data:image/png;base64,{b64}")
-  return slide_images
+uploaded_files = st.file_uploader(
+    "Upload slide images", type=["png", "jpg", "jpeg"], accept_multiple_files=True
+)
 
 
 def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
@@ -173,7 +158,7 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
                 }}]
               }}],
               generationConfig: {{ responseMimeType: "application/json" }}
-            }})
+            }}
           }}
         );
 
@@ -207,18 +192,17 @@ def build_ai_player_html(slides_b64: list[str], keys_string: str) -> str:
 
 
 if st.button("🚀 Launch AI-Enabled Presentation Player", type="primary"):
-  if not uploaded_file:
-    st.error("Please upload a presentation PDF file.")
+  if not uploaded_files:
+    st.error("Please upload at least one slide image.")
   else:
-    with st.spinner("Processing PDF presentation slides..."):
+    with st.spinner("Building presentation player..."):
       try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-          tmp.write(uploaded_file.getvalue())
-          temp_pdf_path = tmp.name
+        slides_b64 = []
+        for file in uploaded_files:
+          b64 = base64.b64encode(file.getvalue()).decode("utf-8")
+          slides_b64.append(f"data:image/png;base64,{b64}")
 
-        slides_b64 = convert_pdf_to_images(temp_pdf_path)
         html_content = build_ai_player_html(slides_b64, GEMINI_API_KEYS)
-
         st.components.v1.html(html_content, height=750, scrolling=False)
         st.success(
             f"✅ Successfully loaded {len(slides_b64)} slides into the player!"
