@@ -279,9 +279,9 @@ button:disabled {{ opacity: 0.35; cursor: not-allowed; }}
 .assistant {{ display: flex; flex-direction: column; min-width: 0; background: #111c31; border-left: 1px solid #263449; min-height: 590px; }}
 .assistant-header {{ padding: 16px; border-bottom: 1px solid #263449; }}
 .assistant-header h3 {{ margin: 0 0 5px; }}
-.assistant-header p {{ margin: 0; color: #94a3b8; font-size: 12px; }}
+.assistant-header p {{ margin: 0; color: #94a3b8; font-size: 15px; }}
 .messages {{ padding: 12px; flex: 1; overflow-y: auto; max-height: 440px; min-height: 220px; }}
-.message {{ padding: 11px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }}
+.message {{ padding: 11px; border-radius: 10px; margin-bottom: 10px; font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }}
 .user-message {{ background: #263a60; margin-left: 18px; }}
 .ai-message {{ background: #1e293b; margin-right: 18px; }}
 .message-label {{ color: #a5b4fc; font-size: 10px; font-weight: bold; margin-bottom: 5px; }}
