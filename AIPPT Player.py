@@ -28,7 +28,7 @@ MAX_SLIDES = 100
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
-MODEL_NAME = st.secrets.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL_NAME = st.secrets.get("GEMINI_MODEL", "gemini-3.8-flash")
 
 # =========================================================
 # SESSION STATE INITIALIZATION
@@ -318,13 +318,13 @@ textarea:focus {{ border-color: #818cf8; }}
         </section>
         <aside class="assistant">
             <div class="assistant-header">
-                <h3>🤖 AI Tutor</h3>
+                <h3>🤖 AI Teammate</h3>
                 <p>Talk naturally. Ask questions about your slides.</p>
             </div>
             <div class="messages" id="messages">
                 <div class="message ai-message">
                     <div class="message-label">AI TUTOR</div>
-                    Hello! Ask me to explain a slide, give examples, or create a new slide.
+                   Hello! Ask me to explain a slide, give examples, or create a new slide.
                 </div>
             </div>
             <div class="composer">
